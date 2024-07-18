@@ -1,0 +1,25 @@
+[project]
+name = "Speech Separation Optimization Framework"
+description = ""
+license = {file = "LICENSE"}
+requires-python = ">=3.11"
+dependencies = [
+    "torch>=2.3.1"
+    "torchaudio>=2.3.1"
+    "pandas>=2.2.2"
+    "matplotlib>=3.9.0"
+    "tqdm>=4.66.4"
+]
+classifiers = [
+    "Environment :: Console",
+    "Operating System :: OS Independent",
+    "Programming Language :: Cython",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering"
+    "License :: OSI Approved :: MIT License",
+]
