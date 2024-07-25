@@ -5,7 +5,7 @@ from ssepoptim.dataset import (
     SpeechSeparationDatasetConfig,
     SpeechSeparationDatasetFactory,
 )
-from ssepoptim.utils.checker import check_config_entries
+from ssepoptim.utils.type_checker import check_config_entries
 
 
 class LibriMixDatasetConfig(SpeechSeparationDatasetConfig):

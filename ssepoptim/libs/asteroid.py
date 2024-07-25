@@ -1,4 +1,5 @@
 # This file is an extraction of needed modules from asteroid with added type annotations and additional error handling
+#       Additionally fixes minor bugs
 # Original repo: https://github.com/asteroid-team/asteroid
 import inspect
 import math
@@ -676,3 +677,139 @@ class BaseEncoderMaskerDecoder(nn.Module):
             torch.Tensor: Time-domain waveforms.
         """
         return self.decoder(masked_tf_rep)
+
+
+class SingleRNN(nn.Module):
+    """Module for a RNN block.
+
+    Inspired from https://github.com/yluo42/TAC/blob/master/utility/models.py
+    Licensed under CC BY-NC-SA 3.0 US.
+
+    Args:
+        rnn_type (str): Select from ``'RNN'``, ``'LSTM'``, ``'GRU'``. Can
+            also be passed in lowercase letters.
+        input_size (int): Dimension of the input feature. The input should have
+            shape [batch, seq_len, input_size].
+        hidden_size (int): Dimension of the hidden state.
+        n_layers (int, optional): Number of layers used in RNN. Default is 1.
+        dropout (float, optional): Dropout ratio. Default is 0.
+        bidirectional (bool, optional): Whether the RNN layers are
+            bidirectional. Default is ``False``.
+    """
+
+    def __init__(
+        self,
+        rnn_type: Type[nn.RNN | nn.LSTM | nn.GRU],
+        input_size: int,
+        hidden_size: int,
+        n_layers: int = 1,
+        dropout: float = 0,
+        bidirectional: bool = False,
+    ):
+        super().__init__()
+
+        self.rnn_type = rnn_type
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.n_layers = n_layers
+        self.dropout = dropout
+        self.bidirectional = bidirectional
+        self.rnn = rnn_type(
+            input_size,
+            hidden_size,
+            num_layers=n_layers,
+            dropout=dropout,
+            batch_first=True,
+            bidirectional=bool(bidirectional),
+        )
+
+    @property
+    def output_size(self):
+        return self.hidden_size * (2 if self.bidirectional else 1)
+
+    def forward(self, inp: torch.Tensor) -> torch.Tensor:
+        """Input shape [batch, seq, feats]"""
+        self.rnn.flatten_parameters()  # Enables faster multi-GPU training.
+        output = inp
+        rnn_output, _ = self.rnn(output)
+        return rnn_output
+
+
+class LSTMMasker(nn.Module):
+    """LSTM mask network introduced in [1], without skip connections.
+
+    Args:
+        in_chan (int): Number of input filters.
+        n_src (int): Number of masks to estimate.
+        out_chan  (int or None): Number of bins in the estimated masks.
+            Defaults to `in_chan`.
+        rnn_type (str, optional): Type of RNN used. Choose between ``'RNN'``,
+            ``'LSTM'`` and ``'GRU'``.
+        n_layers (int, optional): Number of layers in each RNN.
+        hid_size (int): Number of neurons in the RNNs cell state.
+        mask_act (str, optional): Which non-linear function to generate mask.
+        bidirectional (bool, optional): Whether to use BiLSTM
+        dropout (float, optional): Dropout ratio, must be in [0,1].
+
+    References
+        [1]: Yi Luo et al. "Real-time Single-channel Dereverberation and Separation
+        with Time-domain Audio Separation Network", Interspeech 2018
+    """
+
+    def __init__(
+        self,
+        in_chan: int,
+        n_src: int,
+        out_chan: Optional[int] = None,
+        rnn_type: Type[nn.RNN | nn.LSTM | nn.GRU] = nn.LSTM,
+        n_layers: int = 4,
+        hid_size: int = 512,
+        dropout: float = 0.3,
+        mask_act: Type[nn.Module] = nn.Sigmoid,
+        bidirectional: bool = True,
+    ):
+        super().__init__()
+
+        self.in_chan = in_chan
+        self.n_src = n_src
+        out_chan = out_chan if out_chan is not None else in_chan
+        self.out_chan = out_chan
+        self.rnn_type = rnn_type
+        self.n_layers = n_layers
+        self.hid_size = hid_size
+        self.dropout = dropout
+        self.mask_act = mask_act
+        self.bidirectional = bidirectional
+
+        # For softmax, feed the source dimension.
+        if has_arg(mask_act, "dim"):
+            self.output_act = mask_act(dim=1)
+        else:
+            self.output_act = mask_act()
+
+        # Create TasNet masker
+        out_size = hid_size * (int(bidirectional) + 1)
+        if bidirectional:
+            self.bn_layer = GlobLN(in_chan)
+        else:
+            self.bn_layer = CumLN(in_chan)
+        self.masker = nn.Sequential(
+            SingleRNN(
+                self.rnn_type,
+                in_chan,
+                hidden_size=hid_size,
+                n_layers=n_layers,
+                bidirectional=bidirectional,
+                dropout=dropout,
+            ),
+            nn.Linear(out_size, self.n_src * out_chan),
+            self.output_act,
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        batch_size = x.shape[0]
+        to_sep: torch.Tensor = self.bn_layer(x)
+        est_masks: torch.Tensor = self.masker(to_sep.transpose(-1, -2))
+        est_masks = est_masks.transpose(-1, -2)
+        est_masks = est_masks.view(batch_size, self.n_src, self.out_chan, -1)
+        return est_masks

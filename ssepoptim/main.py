@@ -56,6 +56,14 @@ def main(config_path: str):
     # Print tag
     if config["tag"] is not None:
         logger.info(config["tag"])
+    # Log configuration
+    logger.info("Using model: %s", config["model"])
+    logger.info("Using dataset: %s", config["dataset"])
+    logger.info(
+        "Using optimizations: %s",
+        ", ".join(config["optimizations"]),
+    )
+    logger.info("Using metric: %s", training_config["metric"].__name__)
     # Train
     train(
         config["model"],

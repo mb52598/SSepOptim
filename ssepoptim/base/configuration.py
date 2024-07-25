@@ -1,17 +1,18 @@
 import importlib
 from collections.abc import Callable
 from configparser import ConfigParser, ExtendedInterpolation, SectionProxy
+from types import NoneType
 from typing import (
     Any,
     Type,
     TypedDict,
     TypeVar,
     Union,
+    cast,
     get_args,
     get_origin,
     get_type_hints,
 )
-from types import NoneType
 
 
 class BaseConfig(TypedDict):
@@ -51,8 +52,13 @@ class ConfigLoader:
         else:
             raise RuntimeError('Unsupported type "{}"'.format(value.__name__))
         result_value = getattr(model, conversion_func_name)(key)
-        if type(result_value) != value:
-            raise RuntimeError(f'Unable to convert "{key}" to type "{value}"')
+        result_type = cast(type[Any], type(result_value))
+        if result_type is not value:
+            raise RuntimeError(
+                'Unable to convert "{}" to type "{}", got "{}"'.format(
+                    key, value.__name__, result_type.__name__
+                )
+            )
         return result_value
 
     def get_config(self, cls: Type[TC]) -> TC:
@@ -99,20 +105,22 @@ class ConfigLoader:
                 imported_function = self._import_object(
                     self._parse_key_value_annotation(model, key, str)
                 )
-                arg_types, return_type = get_args(value)
+                arg_types, return_type = cast(
+                    tuple[list[type[Any]], type[Any]], get_args(value)
+                )
                 *defined_arg_types, defined_return_type = get_type_hints(
                     imported_function
                 ).values()
                 for i, (arg_type, defined_arg_type) in enumerate(
                     zip(arg_types, defined_arg_types), start=1
                 ):
-                    if arg_type != defined_arg_type:
+                    if arg_type is not defined_arg_type:
                         raise RuntimeError(
                             'Imported function {}. argument type "{}" doesn\'t match specified type "{}"'.format(
                                 i, arg_type.__name__, defined_arg_type.__name__
                             )
                         )
-                if return_type != defined_return_type:
+                if return_type is not defined_return_type:
                     raise RuntimeError(
                         'Imported function return type "{}" doesn\'t match specified type "{}"'.format(
                             return_type.__name__, defined_return_type.__name__

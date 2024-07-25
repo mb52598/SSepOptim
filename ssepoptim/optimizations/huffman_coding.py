@@ -1,7 +1,6 @@
 from typing import Literal
 
 import torch.nn as nn
-import torch.nn.utils.prune as prune
 
 from ssepoptim.optimization import (
     Optimization,
@@ -11,36 +10,33 @@ from ssepoptim.optimization import (
 from ssepoptim.utils.type_checker import check_config_entries
 
 
-class PruningOptimizationConfig(OptimizationConfig):
+class HuffmanCodingOptimizationConfig(OptimizationConfig):
     pass
 
 
-class PruningOptimization(Optimization):
-    def __init__(self, config: PruningOptimizationConfig):
+class HuffmanCodingOptimization(Optimization):
+    def __init__(self, config: HuffmanCodingOptimizationConfig):
         self._config = config
 
     def apply(self, model: nn.Module) -> nn.Module:
-        prune.global_unstructured(
-            model.named_modules(), pruning_method=prune.L1Unstructured, amount=0.2
-        )
         return model
 
     @classmethod
     def getType(cls) -> Literal["training", "inference"]:
-        return "training"
+        return "inference"
 
     @classmethod
     def requiresFinetune(cls) -> bool:
         return False
 
 
-class PruningOptimizationFactory(OptimizationFactory):
+class HuffmanCodingOptimizationFactory(OptimizationFactory):
     @staticmethod
     def _get_config():
-        return PruningOptimizationConfig
+        return HuffmanCodingOptimizationConfig
 
     @staticmethod
     def _get_object(config: OptimizationConfig):
-        return PruningOptimization(
-            check_config_entries(config, PruningOptimizationConfig)
+        return HuffmanCodingOptimization(
+            check_config_entries(config, HuffmanCodingOptimizationConfig)
         )

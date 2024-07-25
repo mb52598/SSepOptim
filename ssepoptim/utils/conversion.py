@@ -1,5 +1,5 @@
 from types import FunctionType
-from typing import Any
+from typing import Any, Iterable, Mapping, TypeVar
 
 
 def dict_any_to_str(d: dict[str, Any]) -> dict[str, str]:
@@ -10,3 +10,11 @@ def dict_any_to_str(d: dict[str, Any]) -> dict[str, str]:
         else:
             result[k] = str(v)
     return result
+
+
+K = TypeVar("K")
+V = TypeVar("V")
+
+
+def flatten_mappings(dicts: Iterable[Mapping[K, V]]) -> dict[K, V]:
+    return {k: v for dct in dicts for k, v in dct.items()}

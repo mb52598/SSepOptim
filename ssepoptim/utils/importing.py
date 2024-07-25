@@ -9,7 +9,8 @@ def load_local_modules(file: str, package: str | None):
     package_path, module_file_name = file.rsplit(os.sep, maxsplit=1)
     package_name = package if package is not None else ""
     for file in os.listdir(package_path):
-        if file == module_file_name or file == "__pycache__":
+        file_path = os.path.join(package_path, file)
+        if file == module_file_name or os.path.isdir(file_path):
             continue
         other_module_name = file.removesuffix(".py")
         if file == other_module_name:

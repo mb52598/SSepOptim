@@ -8,7 +8,6 @@ dependencies = [
     "torchaudio>=2.3.1"
     "pandas>=2.2.2"
     "matplotlib>=3.9.0"
-    "tqdm>=4.66.4"
 ]
 classifiers = [
     "Environment :: Console",

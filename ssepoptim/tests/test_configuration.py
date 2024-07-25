@@ -65,7 +65,7 @@ class TestCheckpointer(unittest.TestCase):
         d = hello hello hello
         f = 12314
         g = 12,34,56,78
-        h = tests.test_configuration.test_function
+        h = ssepoptim.tests.test_configuration.test_function
 
         [NotTest]
         a = false

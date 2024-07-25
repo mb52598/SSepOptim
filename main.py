@@ -1,11 +1,12 @@
 import argparse
+import os
 from typing import cast
 
 from ssepoptim.main import main as ssepoptim_main
 
 
 class Arguments:
-    config_paths: list[str]
+    config_path: str
 
 
 def main():
@@ -15,14 +16,20 @@ def main():
     parser.add_argument(
         "-cfg",
         "--configuration-path",
-        dest="config_paths",
+        dest="config_path",
         type=str,
-        default=["config/default.ini"],
-        help="path to the configuration file",
-        nargs="+",
+        default="config/default.ini",
+        help="path to the configuration file or folder",
     )
     args = cast(Arguments, parser.parse_args())
-    for config_path in args.config_paths:
+    if os.path.isdir(args.config_path):
+        config_paths = [
+            os.path.join(args.config_path, config)
+            for config in os.listdir(args.config_path)
+        ]
+    else:
+        config_paths = [args.config_path]
+    for config_path in config_paths:
         ssepoptim_main(config_path)
 
 

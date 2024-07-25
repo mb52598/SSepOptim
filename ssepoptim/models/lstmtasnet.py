@@ -1,35 +1,52 @@
+from copy import deepcopy
 from typing import Optional, Type
 
+import torch
 import torch.nn as nn
 
-from ssepoptim.libs.asteroid import BaseEncoderMaskerDecoder, DPTransformer
-from ssepoptim.libs.asteroid_filterbanks import Filterbank, make_enc_dec
+from ssepoptim.libs.asteroid import BaseEncoderMaskerDecoder, LSTMMasker
+from ssepoptim.libs.asteroid_filterbanks import Encoder, Filterbank, make_enc_dec
 from ssepoptim.model import ModelConfig, ModelFactory
 from ssepoptim.utils.type_checker import check_config_entries
 
 
-class DPTNetConfig(ModelConfig):
+class LSTMTasNetConfig(ModelConfig):
     n_src: int
-    n_heads: int
-    ff_hid: int
-    chunk_size: int
-    hop_size: Optional[int]
-    n_repeats: int
-    norm: Type[nn.Module]
-    ff_activation: Type[nn.Module]
-    encoder_activation: Type[nn.Module]
+    out_chan: Optional[int]
+    hid_size: int
     mask_act: Type[nn.Module]
     bidirectional: bool
+    rnn_type: Type[nn.Module]
+    n_layers: int
     dropout: int
-    in_chan: Optional[int]
+    encoder_activation: Type[nn.Module]
+    #
     fb_class: Type[Filterbank]
-    kernel_size: int
     n_filters: int
+    kernel_size: int
     stride: int
     sample_rate: int
+    in_chan: Optional[int]
 
 
-class DPTNet(BaseEncoderMaskerDecoder):
+class _GatedEncoder(nn.Module):
+    def __init__(self, encoder: Encoder):
+        super().__init__()
+
+        # For config
+        self.filterbank = encoder.filterbank
+        self.sample_rate = getattr(encoder.filterbank, "sample_rate", None)
+        # Gated encoder.
+        self.encoder_relu = encoder
+        self.encoder_sig = deepcopy(encoder)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        relu_out = torch.relu(self.encoder_relu(x))
+        sig_out = torch.sigmoid(self.encoder_sig(x))
+        return sig_out * relu_out
+
+
+class LSTMTasNet(BaseEncoderMaskerDecoder):
     """DPTNet separation model, as described in [1].
 
     Args:
@@ -75,7 +92,7 @@ class DPTNet(BaseEncoderMaskerDecoder):
           Interspeech 2020.
     """
 
-    def __init__(self, config: DPTNetConfig):
+    def __init__(self, config: LSTMTasNetConfig):
         encoder, decoder = make_enc_dec(
             config["fb_class"],
             n_filters=config["n_filters"],
@@ -91,19 +108,21 @@ class DPTNet(BaseEncoderMaskerDecoder):
                 "be the same. Received "
                 "{} and {}".format(n_feats, config["in_chan"])
             )
-        # Update in_chan
-        masker = DPTransformer(
+
+        # Real gated encoder
+        encoder = _GatedEncoder(encoder)
+
+        # Masker
+        assert config["rnn_type"] in [nn.RNN, nn.LSTM, nn.GRU]
+        masker = LSTMMasker(
             n_feats,
             config["n_src"],
-            n_heads=config["n_heads"],
-            ff_hid=config["ff_hid"],
-            ff_activation=config["ff_activation"],
-            chunk_size=config["chunk_size"],
-            hop_size=config["hop_size"],
-            n_repeats=config["n_repeats"],
-            norm=config["norm"],
+            out_chan=config["out_chan"],
+            hid_size=config["hid_size"],
             mask_act=config["mask_act"],
             bidirectional=config["bidirectional"],
+            rnn_type=config["rnn_type"],
+            n_layers=config["n_layers"],
             dropout=config["dropout"],
         )
         super().__init__(
@@ -111,11 +130,11 @@ class DPTNet(BaseEncoderMaskerDecoder):
         )
 
 
-class DPTNetFactory(ModelFactory):
+class LSTMTasNetFactory(ModelFactory):
     @staticmethod
     def _get_config():
-        return DPTNetConfig
+        return LSTMTasNetConfig
 
     @staticmethod
     def _get_object(config: ModelConfig):
-        return DPTNet(check_config_entries(config, DPTNetConfig))
+        return LSTMTasNet(check_config_entries(config, LSTMTasNetConfig))

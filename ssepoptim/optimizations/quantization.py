@@ -1,16 +1,15 @@
-from types import TracebackType
-from typing import Optional, Self, Type
+from typing import Literal
 
 import torch
+import torch.ao.quantization as quantization
 import torch.nn as nn
 
 from ssepoptim.optimization import (
     Optimization,
     OptimizationConfig,
-    OptimizationContext,
     OptimizationFactory,
 )
-from ssepoptim.utils.checker import check_config_entries
+from ssepoptim.utils.type_checker import check_config_entries
 
 
 class QuantizationOptimizationConfig(OptimizationConfig):
@@ -18,34 +17,23 @@ class QuantizationOptimizationConfig(OptimizationConfig):
     dtype: str
 
 
-class QuantizationOptimizationContext:
-    def __init__(self, config: QuantizationOptimizationConfig):
-        dtype = getattr(torch, config["dtype"])
-        if type(dtype) is not torch.dtype:
-            raise RuntimeError(
-                'Invalid quantization type "{}"'.format(type(dtype).__name__)
-            )
-        self._autocast = torch.autocast(device_type=config["device"], dtype=dtype)
-
-    def __enter__(self) -> Self:
-        self._autocast.__enter__()
-        return self
-
-    def __exit__(
-        self,
-        exctype: Optional[Type[BaseException]],
-        excinst: Optional[BaseException],
-        exctb: Optional[TracebackType],
-    ) -> None:
-        self._autocast.__exit__(exctype, excinst, exctb)
-
-
 class QuantizationOptimization(Optimization):
     def __init__(self, config: QuantizationOptimizationConfig):
         self._config = config
 
-    def apply(self, model: nn.Module) -> OptimizationContext:
-        return QuantizationOptimizationContext(self._config)
+    def apply(self, model: nn.Module) -> nn.Module:
+        quantized_model = quantization.quantize_dynamic(
+            model, {nn.Linear}, dtype=torch.qint8
+        )
+        return quantized_model
+
+    @classmethod
+    def getType(cls) -> Literal["training", "inference"]:
+        return "training"
+
+    @classmethod
+    def requiresFinetune(cls) -> bool:
+        return False
 
 
 class QuantizationOptimizationFactory(OptimizationFactory):

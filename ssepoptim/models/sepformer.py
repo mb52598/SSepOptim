@@ -8,7 +8,7 @@ from ssepoptim.libs.speechbrain import (
     SBTransformerBlock,
 )
 from ssepoptim.model import ModelConfig, ModelFactory
-from ssepoptim.utils.checker import check_config_entries
+from ssepoptim.utils.type_checker import check_config_entries
 
 
 class SepformerConfig(ModelConfig):

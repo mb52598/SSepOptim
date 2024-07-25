@@ -1,7 +1,7 @@
 from torchaudio.models import ConvTasNet as ConvTasNetTorch
 
 from ssepoptim.model import ModelConfig, ModelFactory
-from ssepoptim.utils.checker import check_config_entries
+from ssepoptim.utils.type_checker import check_config_entries
 
 
 class ConvTasNetConfig(ModelConfig):

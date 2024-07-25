@@ -5,7 +5,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from tqdm import tqdm
 
 import ssepoptim.metrics as metrics
 from ssepoptim.base.checkpointing import Checkpointer, CheckpointerConfig
@@ -15,17 +14,32 @@ from ssepoptim.dataset import (
     SpeechSeparationDatasetFactory,
 )
 from ssepoptim.model import ModelConfig, ModelFactory
-from ssepoptim.optimization import OptimizationConfig, OptimizationFactory
-from ssepoptim.utils.context_helper import zip_context
+from ssepoptim.optimization import (
+    OptimizationConfig,
+    OptimizationFactory,
+    Optimizations,
+)
+from ssepoptim.utils.context_timer import CtxTimer
 from ssepoptim.utils.conversion import dict_any_to_str
 
 logger = logging.getLogger(__name__)
 
-MODEL_STATE_DICT_STR = "model_state_dict"
-OPTIMIZER_STATE_DICT_STR = "optmizer_state_dict"
-SCHEDULER_STATE_DICT_STR = "scheduler_state_dict"
-
 _DataLoader = DataLoader[tuple[torch.Tensor, torch.Tensor]]
+
+
+# Useful for preventing typing errors
+class CheckpointerKeys:
+    EPOCH = "epoch"
+    TRAIN_AVERAGE_LOSS = "train_avg_loss"
+    VALID_AVERAGE_LOSS = "valid_avg_loss"
+    MODEL_CONFIG = "model_config"
+    OPTIMIZATION_CONFIGS = "optimization_configs"
+    DATASET_CONFIG = "dataset_config"
+    CHECKPOINTER_CONFIG = "checkpointer_config"
+    TRAINING_CONFIG = "training_config"
+    MODEL_STATE_DICT = "model_state_dict"
+    OPTIMIZER_STATE_DICT = "optimizer_state_dict"
+    SCHEDULER_STATE_DICT = "scheduler_state_dict"
 
 
 class TrainingConfig(BaseConfig):
@@ -41,23 +55,14 @@ class TrainingConfig(BaseConfig):
 
 
 def _train_loop(
-    epoch: int,
-    model_name: str,
     train_dataloader: _DataLoader,
-    valid_dataloader: _DataLoader,
     model: nn.Module,
     metric: metrics.Metric,
     optimizer: optim.Optimizer,
-    scheduler: optim.lr_scheduler.ReduceLROnPlateau,
-    checkpointer: Checkpointer,
-    model_config: ModelConfig,
-    dataset_config: SpeechSeparationDatasetConfig,
-    optimization_configs: list[OptimizationConfig],
-    checkpointer_config: CheckpointerConfig,
-    training_config: TrainingConfig,
 ):
     model.train()
     train_loss_sum: torch.Tensor = 0.0
+    timer = CtxTimer()
     for mix, target in train_dataloader:
         separation = model(mix)
         loss = -metric(separation, target)
@@ -65,44 +70,25 @@ def _train_loop(
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
-    if epoch % training_config["checkpoint_epoch_log"] == 0:
-        model.eval()
-        valid_loss_sum: torch.Tensor = 0.0
-        with torch.no_grad():
-            for mix, target in valid_dataloader:
-                separation = model(mix)
-                loss = -metric(separation, target)
-                valid_loss_sum += loss
-        train_avg_loss = train_loss_sum.sum().item() / len(train_dataloader)
-        valid_avg_loss = valid_loss_sum.sum().item() / len(valid_dataloader)
-        logger.info(
-            "Train SI-SNR: %f, Valid SI-SNR: %f", train_avg_loss, valid_avg_loss
-        )
-        checkpointer.save(
-            model_name,
-            major_metadata=dict_any_to_str(
-                {
-                    "epoch": epoch,
-                    "train_avg_loss": train_avg_loss,
-                    "valid_avg_loss": valid_avg_loss,
-                    **model_config,
-                    **dataset_config,
-                    **{
-                        k: v
-                        for config in optimization_configs
-                        for k, v in config.items()
-                    },
-                    **checkpointer_config,
-                    **training_config,
-                }
-            ),
-            minor_metadata={
-                MODEL_STATE_DICT_STR: model.state_dict(),
-                OPTIMIZER_STATE_DICT_STR: optimizer.state_dict(),
-                SCHEDULER_STATE_DICT_STR: scheduler.state_dict(),
-            },
-        )
-    scheduler.step(train_loss_sum)
+    train_avg_loss = train_loss_sum.sum().item() / len(train_dataloader)
+    return train_avg_loss, timer.total
+
+
+def _valid_loop(
+    valid_dataloader: _DataLoader,
+    model: nn.Module,
+    metric: metrics.Metric,
+):
+    model.eval()
+    valid_loss_sum: torch.Tensor = 0.0
+    timer = CtxTimer()
+    with torch.no_grad():
+        for mix, target in valid_dataloader:
+            separation = model(mix)
+            loss = -metric(separation, target)
+            valid_loss_sum += loss
+    valid_avg_loss = valid_loss_sum.sum().item() / len(valid_dataloader)
+    return valid_avg_loss, timer.total
 
 
 def train(
@@ -114,15 +100,7 @@ def train(
     optimization_configs: list[OptimizationConfig],
     checkpointer_config: CheckpointerConfig,
     training_config: TrainingConfig,
-):
-    # Log configuration
-    logger.info("Using model: %s", model_name)
-    logger.info("Using dataset: %s", dataset_name)
-    logger.info(
-        "Using optimizations: %s",
-        ", ".join(optimization_names) if len(optimization_names) > 0 else "none",
-    )
-    logger.info("Using metric: %s", training_config["metric"].__name__)
+) -> nn.Module:
     # Setup variables
     model = ModelFactory.get_object(model_name, model_config)
     dataset = SpeechSeparationDatasetFactory.get_object(dataset_name, dataset_config)
@@ -145,35 +123,75 @@ def train(
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=2)
     checkpointer = Checkpointer(checkpointer_config)
     # Load checkpoint if configured
+    start_epoch = 0
     if training_config["load_last_checkpoint"]:
         checkpoints = checkpointer.search_checkpoints(
             model_name,
-            dict_any_to_str({**model_config, **dataset_config, **training_config}),
-            Checkpointer.TIME_METADATA,
+            hidden_metadata={
+                CheckpointerKeys.MODEL_CONFIG: model_config,
+                CheckpointerKeys.OPTIMIZATION_CONFIGS: optimization_configs,
+                CheckpointerKeys.DATASET_CONFIG: dataset_config,
+                CheckpointerKeys.TRAINING_CONFIG: training_config,
+            },
+            desc_sort_by=Checkpointer.TIME_METADATA,
         )
         if len(checkpoints) > 0:
             checkpoint = checkpoints[0]
             logger.info("Using checkpoint: %s", checkpoint)
-            minor_metadata = checkpointer.get_minor_metadata(checkpoint)
-            model.load_state_dict(minor_metadata[MODEL_STATE_DICT_STR])
-            optimizer.load_state_dict(minor_metadata[OPTIMIZER_STATE_DICT_STR])
-            scheduler.load_state_dict(minor_metadata[SCHEDULER_STATE_DICT_STR])
+            visible_metadata, _, data = checkpointer.load_checkpoint(checkpoint[0])
+            start_epoch = int(visible_metadata[CheckpointerKeys.EPOCH])
+            model.load_state_dict(data[CheckpointerKeys.MODEL_STATE_DICT])
+            optimizer.load_state_dict(data[CheckpointerKeys.OPTIMIZER_STATE_DICT])
+            scheduler.load_state_dict(data[CheckpointerKeys.SCHEDULER_STATE_DICT])
+        else:
+            logger.warn("Unable to find any checkpoints, starting from the beginning")
     # Apply optimizations and begin data loop
-    with zip_context(optimization.apply(model) for optimization in optimizations):
-        for epoch in tqdm(range(training_config["epochs"])):
-            _train_loop(
-                epoch,
+    model = Optimizations.apply(model, optimizations, stage="train")
+    # Data loop
+    timer = CtxTimer()
+    for epoch in range(start_epoch, training_config["epochs"] + 1):
+        logger.info("Epoch %d", epoch)
+        #
+        train_avg_loss, train_time = _train_loop(
+            train_dataloader, model, metric, optimizer
+        )
+        logger.info("Train|Time: %f|Loss: %f", train_time, train_avg_loss)
+        #
+        valid_avg_loss, valid_time = _valid_loop(valid_dataloader, model, metric)
+        logger.info("Valid|Time: %f|Loss: %f", valid_time, valid_avg_loss)
+        #
+        logger.info(
+            "Epoch %d|Time: %f|Loss: %f",
+            train_time + valid_time,
+            train_avg_loss + valid_avg_loss,
+        )
+        #
+        if epoch % training_config["checkpoint_epoch_log"] == 0:
+            checkpointer.save_checkpoint(
                 model_name,
-                train_dataloader,
-                valid_dataloader,
-                model,
-                metric,
-                optimizer,
-                scheduler,
-                checkpointer,
-                model_config,
-                dataset_config,
-                optimization_configs,
-                checkpointer_config,
-                training_config,
+                visible_metadata=dict_any_to_str(
+                    {
+                        CheckpointerKeys.EPOCH: epoch,
+                        CheckpointerKeys.TRAIN_AVERAGE_LOSS: train_avg_loss,
+                        CheckpointerKeys.VALID_AVERAGE_LOSS: valid_avg_loss,
+                    }
+                ),
+                hidden_metadata={
+                    CheckpointerKeys.MODEL_CONFIG: model_config,
+                    CheckpointerKeys.DATASET_CONFIG: dataset_config,
+                    CheckpointerKeys.OPTIMIZATION_CONFIGS: optimization_configs,
+                    CheckpointerKeys.CHECKPOINTER_CONFIG: checkpointer_config,
+                    CheckpointerKeys.TRAINING_CONFIG: training_config,
+                },
+                data={
+                    CheckpointerKeys.MODEL_STATE_DICT: model.state_dict(),
+                    CheckpointerKeys.OPTIMIZER_STATE_DICT: optimizer.state_dict(),
+                    CheckpointerKeys.SCHEDULER_STATE_DICT: scheduler.state_dict(),
+                },
             )
+        #
+        scheduler.step(train_avg_loss)
+    # Log total time
+    logger.info("Training|Epochs: %d|Time: %f", training_config["epochs"], timer.total)
+    # Return the trained model
+    return model
