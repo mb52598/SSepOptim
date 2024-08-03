@@ -14,7 +14,12 @@ def dict_any_to_str(d: dict[str, Any]) -> dict[str, str]:
 
 K = TypeVar("K")
 V = TypeVar("V")
+T = TypeVar("T")
 
 
 def flatten_mappings(dicts: Iterable[Mapping[K, V]]) -> dict[K, V]:
     return {k: v for dct in dicts for k, v in dct.items()}
+
+
+def flatten(lsts: list[list[T]]) -> list[T]:
+    return [v for lst in lsts for v in lst]

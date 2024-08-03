@@ -1,5 +1,5 @@
 import os
-from typing import Literal
+from typing import Literal, Optional
 from urllib.parse import urlparse
 from zipfile import ZipFile
 
@@ -8,7 +8,7 @@ from ssepoptim.dataset import (
     SpeechSeparationDatasetConfig,
     SpeechSeparationDatasetFactory,
 )
-from ssepoptim.datasets.utils.audio_files_dataset import AudioFilesDataset
+from ssepoptim.datasets.utils.audio_files_dataset import SplitAudioFilesDataset
 from ssepoptim.datasets.utils.gdrive_download import gdrive_download
 from ssepoptim.datasets.utils.split_data import split_data
 from ssepoptim.utils.type_checker import check_config_entries
@@ -17,6 +17,8 @@ from ssepoptim.utils.type_checker import check_config_entries
 class LibriCSSDatasetConfig(SpeechSeparationDatasetConfig):
     path: str
     sample_rate: int
+    num_frames_per_datapoint: int
+    device: Optional[str]
 
 
 class LibriCSSDataset(SpeechSeparationDataset):
@@ -51,7 +53,12 @@ class LibriCSSDataset(SpeechSeparationDataset):
                 dataset_files = cv
             case "tt":
                 dataset_files = tt
-        return AudioFilesDataset(dataset_files, self._config["sample_rate"])
+        return SplitAudioFilesDataset(
+            dataset_files,
+            self._config["num_frames_per_datapoint"],
+            self._config["sample_rate"],
+            self._config["device"],
+        )
 
     def get_train(self) -> _DATASET_TYPE:
         return self._get("tr")

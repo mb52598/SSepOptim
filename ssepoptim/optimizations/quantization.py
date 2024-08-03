@@ -13,7 +13,6 @@ from ssepoptim.utils.type_checker import check_config_entries
 
 
 class QuantizationOptimizationConfig(OptimizationConfig):
-    device: str
     dtype: str
 
 

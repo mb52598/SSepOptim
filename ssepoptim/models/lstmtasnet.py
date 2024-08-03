@@ -18,7 +18,7 @@ class LSTMTasNetConfig(ModelConfig):
     bidirectional: bool
     rnn_type: Type[nn.Module]
     n_layers: int
-    dropout: int
+    dropout: float
     encoder_activation: Type[nn.Module]
     #
     fb_class: Type[Filterbank]

@@ -20,7 +20,7 @@ def main():
         "--path",
         dest="path",
         type=str,
-        default="datasets",
+        default="datasets_dir",
         help="dataset folder path",
     )
     group = parser.add_mutually_exclusive_group(required=True)

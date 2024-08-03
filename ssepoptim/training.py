@@ -48,6 +48,7 @@ class TrainingConfig(BaseConfig):
     lr: float
     number_of_speakers: int
     shuffle: bool
+    num_workers: int
     checkpoint_epoch_log: int
     device: Optional[str]
     metric: metrics.Metric
@@ -65,7 +66,7 @@ def _train_loop(
     timer = CtxTimer()
     for mix, target in train_dataloader:
         separation = model(mix)
-        loss = -metric(separation, target)
+        loss = -torch.sum(metric(separation, target))
         train_loss_sum += loss
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
@@ -85,7 +86,7 @@ def _valid_loop(
     with torch.no_grad():
         for mix, target in valid_dataloader:
             separation = model(mix)
-            loss = -metric(separation, target)
+            loss = -torch.sum(metric(separation, target))
             valid_loss_sum += loss
     valid_avg_loss = valid_loss_sum.sum().item() / len(valid_dataloader)
     return valid_avg_loss, timer.total
@@ -101,6 +102,9 @@ def train(
     checkpointer_config: CheckpointerConfig,
     training_config: TrainingConfig,
 ) -> nn.Module:
+    # Setup default device
+    if training_config["device"] is not None:
+        torch.set_default_device(training_config["device"])
     # Setup variables
     model = ModelFactory.get_object(model_name, model_config)
     dataset = SpeechSeparationDatasetFactory.get_object(dataset_name, dataset_config)
@@ -114,10 +118,18 @@ def train(
     train_dataset = dataset.get_train()
     valid_dataset = dataset.get_valid()
     train_dataloader = DataLoader(
-        train_dataset, training_config["batch_size"], training_config["shuffle"]
+        train_dataset,
+        training_config["batch_size"],
+        training_config["shuffle"],
+        num_workers=training_config["num_workers"],
+        generator=torch.Generator(device=training_config["device"]),
     )
     valid_dataloader = DataLoader(
-        valid_dataset, training_config["batch_size"], training_config["shuffle"]
+        valid_dataset,
+        training_config["batch_size"],
+        training_config["shuffle"],
+        num_workers=training_config["num_workers"],
+        generator=torch.Generator(device=training_config["device"]),
     )
     optimizer = optim.Adam(model.parameters(), training_config["lr"])
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=2)
