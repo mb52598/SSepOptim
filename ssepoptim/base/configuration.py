@@ -4,6 +4,7 @@ from configparser import ConfigParser, ExtendedInterpolation, SectionProxy
 from types import NoneType
 from typing import (
     Any,
+    Literal,
     Type,
     TypedDict,
     TypeVar,
@@ -69,7 +70,7 @@ class ConfigLoader:
             if origin is None:
                 result[key] = self._parse_key_value_annotation(model, key, value)
             elif origin is Union:
-                args = value = get_args(value)
+                args = get_args(value)
                 if len(args) != 2 or NoneType not in args:
                     raise RuntimeError(
                         'Unsupported union with types "{}"'.format(
@@ -127,6 +128,23 @@ class ConfigLoader:
                         )
                     )
                 result[key] = imported_function
+            elif origin is Literal:
+                args = get_args(value)
+                if len(args) == 0:
+                    raise RuntimeError(
+                        'Invalid literal type "{}" for key "{}"'.format(
+                            value.__name__, key
+                        )
+                    )
+                arg_type = cast(type[Any], type(args[0]))
+                result_value = self._parse_key_value_annotation(model, key, arg_type)
+                if result_value not in args:
+                    raise RuntimeError(
+                        'Provided value "{}" not in Literal arguments for key "{}", possible values are: {}'.format(
+                            result_value, key, args
+                        )
+                    )
+                result[key] = result_value
             else:
                 raise RuntimeError('Unsupported origin "{}"'.format(origin.__name__))
         return result

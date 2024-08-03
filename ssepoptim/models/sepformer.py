@@ -16,12 +16,12 @@ class SepformerConfig(ModelConfig):
     out_channels: int
     kernel_size: int
     kernel_stride: int
-    number_of_speakers: int
+    num_spks: int
 
 
 def get_encoder(config: SepformerConfig):
     return Encoder(
-        kernel_size=config["kernel_size"], out_channels=config["out_channels"]
+        kernel_size=config["kernel_size"], out_channels=config["N_encoder_out"]
     )
 
 
@@ -56,7 +56,7 @@ def get_masknet(config: SepformerConfig):
         num_layers=2,
         norm="ln",
         K=250,
-        num_spks=config["number_of_speakers"],
+        num_spks=config["num_spks"],
         skip_around_intra=True,
         linear_layer_after_inter_intra=False,
     )
@@ -75,13 +75,13 @@ class Sepformer(nn.Module):
         encoded_mix = self._encoder(mix)
         est_mask = self._masknet(encoded_mix)
         encoded_mix_stack = torch.stack(
-            [encoded_mix] * self._config["number_of_speakers"]
+            [encoded_mix] * self._config["num_spks"]
         )
         encoded_separated_stack = encoded_mix_stack * est_mask
         return torch.cat(
             [
                 self._decoder(encoded_separated_stack[i]).unsqueeze(-1)
-                for i in range(self._config["number_of_speakers"])
+                for i in range(self._config["num_spks"])
             ]
         )
 

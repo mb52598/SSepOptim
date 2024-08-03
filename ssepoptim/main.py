@@ -1,7 +1,7 @@
 import logging
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 import ssepoptim.datasets as _
 import ssepoptim.models as _
@@ -22,7 +22,9 @@ class MainConfig(BaseConfig):
     dataset: str
     optimizations: list[str]
     logs_path: Optional[str]
-    log_level: str
+    log_level: Literal[
+        "CRITICAL", "FATAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"
+    ]
 
 
 def main(config_path: str):

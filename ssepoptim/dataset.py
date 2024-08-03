@@ -37,8 +37,8 @@ class SpeechSeparationDatasetFactory(
 ):
     @staticmethod
     @abstractmethod
-    def _download() -> None: ...
+    def _download(folder_path: str) -> None: ...
 
     @classmethod
-    def download(cls, name: str) -> None:
-        return cls._get_subclass(name)._download()
+    def download(cls, name: str, folder_path: str) -> None:
+        return cls._get_subclass(name)._download(folder_path)

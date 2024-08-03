@@ -6,6 +6,7 @@ from ssepoptim.dataset import SpeechSeparationDatasetFactory
 
 
 class Arguments:
+    path: str
     download_all: bool
     dataset: str
 
@@ -13,6 +14,14 @@ class Arguments:
 def main():
     parser = argparse.ArgumentParser(
         description="Speech Separation Optimization Framework - Dataset downloader"
+    )
+    parser.add_argument(
+        "-p",
+        "--path",
+        dest="path",
+        type=str,
+        default="datasets",
+        help="dataset folder path",
     )
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
@@ -25,10 +34,10 @@ def main():
         "dataset",
         choices=SpeechSeparationDatasetFactory.list_entries(),
         help="name of the dataset",
-        nargs="?"
+        nargs="?",
     )
     args: Arguments = cast(Arguments, parser.parse_args())
-    SpeechSeparationDatasetFactory.download(args.dataset)
+    SpeechSeparationDatasetFactory.download(args.dataset, args.path)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 from typing import Literal
 
 import torch.nn as nn
+from torch.ao.pruning.sparsifier.weight_norm_sparsifier import WeightNormSparsifier
 import torch.nn.utils.prune as prune
 
 from ssepoptim.optimization import (

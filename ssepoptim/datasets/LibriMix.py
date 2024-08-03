@@ -1,3 +1,6 @@
+import os
+import shutil
+import subprocess
 from typing import Literal
 
 from ssepoptim.dataset import (
@@ -32,6 +35,35 @@ class LibriMixDataset(SpeechSeparationDataset):
 
 
 class LibriMixDatasetFactory(SpeechSeparationDatasetFactory):
+    @staticmethod
+    def _download(folder_path: str) -> None:
+        repo_path = os.path.join(folder_path, "LibriMix_git")
+        dataset_path = os.path.join(folder_path, "LibriMix")
+        clone_retcode = subprocess.call(
+            [
+                "git",
+                "clone",
+                "https://github.com/JorisCos/LibriMix",
+                repo_path,
+            ]
+        )
+        if clone_retcode != 0:
+            raise RuntimeError(
+                f"Unable to clone LibriMix git repository, errcode {clone_retcode}"
+            )
+        script_path = os.path.join(repo_path, "generate_librimix.sh")
+        chmod_retcode = subprocess.call(["chmod", "+x", script_path])
+        if chmod_retcode != 0:
+            raise RuntimeError(
+                f'Unable to chmod LibriMix download script at path "{script_path}", errcode {chmod_retcode}'
+            )
+        script_retcode = subprocess.call([script_path, dataset_path])
+        if script_retcode != 0:
+            raise RuntimeError(
+                f"Unable to create LibriMix dataset, errcode {script_retcode}"
+            )
+        shutil.rmtree(repo_path)
+
     @staticmethod
     def _get_config():
         return LibriMixDatasetConfig
