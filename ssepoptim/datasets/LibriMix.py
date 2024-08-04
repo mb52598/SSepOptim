@@ -1,18 +1,25 @@
 import os
 import shutil
 import subprocess
-from typing import Literal
+import sys
+from typing import Literal, Optional, cast
+
+import torch
+from torch.utils.data import ConcatDataset
 
 from ssepoptim.dataset import (
+    LenDataset,
     SpeechSeparationDataset,
     SpeechSeparationDatasetConfig,
     SpeechSeparationDatasetFactory,
 )
+from ssepoptim.datasets.utils.csv_dataset import CsvAudioDataset
 from ssepoptim.utils.type_checker import check_config_entries
 
 
 class LibriMixDatasetConfig(SpeechSeparationDatasetConfig):
-    pass
+    path: str
+    device: Optional[str]
 
 
 class LibriMixDataset(SpeechSeparationDataset):
@@ -22,7 +29,31 @@ class LibriMixDataset(SpeechSeparationDataset):
         self._config = config
 
     def _get(self, subfolder: Literal["tr", "cv", "tt"]) -> _DATASET_TYPE:
-        raise NotImplementedError()
+        metadata_path = os.path.join(
+            self._config["path"], "Libri2Mix", "wav8k", "min", "metadata"
+        )
+        match subfolder:
+            case "tr":
+                csv_paths = [
+                    os.path.join(metadata_path, "mixture_train-100_mix_both.csv"),
+                    os.path.join(metadata_path, "mixture_train-360_mix_both.csv"),
+                ]
+            case "cv":
+                csv_paths = [os.path.join(metadata_path, "mixture_dev_mix_both.csv")]
+            case "tt":
+                csv_paths = [os.path.join(metadata_path, "mixture_test_mix_both.csv")]
+        return cast(
+            LenDataset[tuple[torch.Tensor, torch.Tensor]],
+            ConcatDataset(
+                CsvAudioDataset(
+                    csv_path,
+                    "mixture_path",
+                    ["source_1_path", "source_2_path"],
+                    self._config["device"],
+                )
+                for csv_path in csv_paths
+            ),
+        )
 
     def get_train(self) -> _DATASET_TYPE:
         return self._get("tr")
@@ -39,21 +70,23 @@ class LibriMixDatasetFactory(SpeechSeparationDatasetFactory):
     def _download(folder_path: str) -> None:
         # Create dirs
         os.makedirs(folder_path, exist_ok=True)
-        # Download repo
+        # Setup paths
         repo_path = os.path.join(folder_path, "LibriMix_git")
         dataset_path = os.path.join(folder_path, "LibriMix")
-        clone_retcode = subprocess.call(
-            [
-                "git",
-                "clone",
-                "https://github.com/JorisCos/LibriMix",
-                repo_path,
-            ]
-        )
-        if clone_retcode != 0:
-            raise RuntimeError(
-                f"Unable to clone LibriMix git repository, errcode {clone_retcode}"
+        # Clone repo if it doesn't exist
+        if not os.path.exists(repo_path):
+            clone_retcode = subprocess.call(
+                [
+                    "git",
+                    "clone",
+                    "https://github.com/JorisCos/LibriMix",
+                    repo_path,
+                ]
             )
+            if clone_retcode != 0:
+                raise RuntimeError(
+                    f"Unable to clone LibriMix git repository, errcode {clone_retcode}"
+                )
         # Chmod download script
         script_path = os.path.join(repo_path, "generate_librimix.sh")
         chmod_retcode = subprocess.call(["chmod", "+x", script_path])
@@ -63,12 +96,12 @@ class LibriMixDatasetFactory(SpeechSeparationDatasetFactory):
             )
         # Change the script
         sed_retcode = 0
-        scripts_path = os.path.join(repo_path, "scripts").replace("/", "\\/")
+        python_path = sys.executable.replace("/", "\\/")
         sed_retcode += subprocess.call(
             [
                 "sed",
                 "-i",
-                f"s/scripts\\/augment_train_noise.py/{scripts_path}\\/augment_train_noise.py/",
+                f's/python_path=python/python_path="{python_path}"/',
                 script_path,
             ]
         )
@@ -76,7 +109,33 @@ class LibriMixDatasetFactory(SpeechSeparationDatasetFactory):
             [
                 "sed",
                 "-i",
-                f"s/scripts\\/create_librimix_from_metadata.py/{scripts_path}\\/create_librimix_from_metadata.py/",
+                's/$python_path /"$python_path" /',
+                script_path,
+            ]
+        )
+        scripts_path = os.path.join(repo_path, "scripts").replace("/", "\\/")
+        sed_retcode += subprocess.call(
+            [
+                "sed",
+                "-i",
+                f's/scripts\\/augment_train_noise.py /"{scripts_path}\\/augment_train_noise.py" /',
+                script_path,
+            ]
+        )
+        sed_retcode += subprocess.call(
+            [
+                "sed",
+                "-i",
+                f's/scripts\\/create_librimix_from_metadata.py /"{scripts_path}\\/create_librimix_from_metadata.py" /',
+                script_path,
+            ]
+        )
+        metadata_path = os.path.join(repo_path, "metadata").replace("/", "\\/")
+        sed_retcode += subprocess.call(
+            [
+                "sed",
+                "-i",
+                f's/metadata_dir=metadata/metadata_dir="{metadata_path}"/',
                 script_path,
             ]
         )

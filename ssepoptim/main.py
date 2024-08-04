@@ -11,7 +11,7 @@ from ssepoptim.base.configuration import BaseConfig, ConfigLoader
 from ssepoptim.dataset import SpeechSeparationDatasetFactory
 from ssepoptim.model import ModelFactory
 from ssepoptim.optimization import OptimizationFactory
-from ssepoptim.training import TrainingConfig, train
+from ssepoptim.training_inference import TrainingInferenceConfig, train
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ def main(config_path: str):
     # Configurations
     loader = ConfigLoader(config_path)
     config = loader.get_config(MainConfig)
-    training_config = loader.get_config(TrainingConfig)
+    train_infer_config = loader.get_config(TrainingInferenceConfig)
     ModelConfigClass = ModelFactory.get_config(config["model"])
     model_config = loader.get_config(ModelConfigClass)
     DatasetConfigClass = SpeechSeparationDatasetFactory.get_config(config["dataset"])
@@ -65,7 +65,7 @@ def main(config_path: str):
         "Using optimizations: %s",
         ", ".join(config["optimizations"]),
     )
-    logger.info("Using metric: %s", training_config["metric"].__name__)
+    logger.info("Using metric: %s", train_infer_config["metric"].__name__)
     # Train
     train(
         config["model"],
@@ -75,6 +75,6 @@ def main(config_path: str):
         dataset_config,
         optimization_configs,
         checkpointer_config,
-        training_config,
+        train_infer_config,
     )
     # Evaluate
