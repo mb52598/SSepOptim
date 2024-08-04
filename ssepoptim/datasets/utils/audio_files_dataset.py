@@ -46,11 +46,9 @@ class AudioFilesDataset(LenDataset[tuple[torch.Tensor, torch.Tensor]]):
         self,
         files: list[tuple[str, str]],
         expected_sampling_rate: int,
-        device: str | None = None,
     ):
         self._files = files
-        self._device = device
-        #_check_dataset(files, expected_sampling_rate)
+        # _check_dataset(files, expected_sampling_rate)
 
     def __len__(self) -> int:
         return len(self._files)
@@ -59,7 +57,7 @@ class AudioFilesDataset(LenDataset[tuple[torch.Tensor, torch.Tensor]]):
         input_file, output_file = self._files[idx]
         input_waveform, _ = torchaudio.load(input_file)
         output_waveform, _ = torchaudio.load(output_file)
-        return input_waveform.to(self._device), output_waveform.to(self._device)
+        return input_waveform, output_waveform
 
 
 class SplitAudioFilesDataset(LenDataset[tuple[torch.Tensor, torch.Tensor]]):
@@ -68,11 +66,9 @@ class SplitAudioFilesDataset(LenDataset[tuple[torch.Tensor, torch.Tensor]]):
         files: list[tuple[str, str]],
         num_frames_per_datapoint: int,
         expected_sampling_rate: int,
-        device: str | None = None,
     ):
         self._files = files
-        self._device = device
-        #_check_dataset(files, expected_sampling_rate)
+        # _check_dataset(files, expected_sampling_rate)
         frames_start_length = _split_dataset_frames(files, num_frames_per_datapoint)
         frames_file_idx: list[int] = []
         total_datapoints = 0
@@ -95,4 +91,4 @@ class SplitAudioFilesDataset(LenDataset[tuple[torch.Tensor, torch.Tensor]]):
         output_waveform, _ = torchaudio.load(
             output_file, frame_offset=start, num_frames=length
         )
-        return input_waveform.to(self._device), output_waveform.to(self._device)
+        return input_waveform, output_waveform

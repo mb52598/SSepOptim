@@ -1,5 +1,5 @@
 import os
-from typing import Literal, Optional
+from typing import Literal
 from urllib.parse import urlparse
 from zipfile import ZipFile
 
@@ -18,7 +18,6 @@ class LibriCSSDatasetConfig(SpeechSeparationDatasetConfig):
     path: str
     sample_rate: int
     num_frames_per_datapoint: int
-    device: Optional[str]
 
 
 class LibriCSSDataset(SpeechSeparationDataset):
@@ -57,7 +56,6 @@ class LibriCSSDataset(SpeechSeparationDataset):
             dataset_files,
             self._config["num_frames_per_datapoint"],
             self._config["sample_rate"],
-            self._config["device"],
         )
 
     def get_train(self) -> _DATASET_TYPE:

@@ -21,6 +21,7 @@ from ssepoptim.optimization import (
     OptimizationFactory,
     Optimizations,
 )
+from ssepoptim.utils.aggregation import min_iter
 from ssepoptim.utils.context_timer import CtxTimer
 from ssepoptim.utils.conversion import dict_any_to_str
 
@@ -65,11 +66,16 @@ def _train_loop(
     model: nn.Module,
     metric: metrics.Metric,
     optimizer: optim.Optimizer,
+    device: Optional[str],
 ):
     model.train()
     train_loss_sum: torch.Tensor = 0.0
     timer = CtxTimer()
+    mix: torch.Tensor
+    target: torch.Tensor
     for mix, target in train_dataloader:
+        mix = mix.to(device)
+        target = target.to(device)
         separation = model(mix)
         loss = -torch.sum(metric(separation, target))
         train_loss_sum += loss
@@ -84,17 +90,31 @@ def _valid_loop(
     valid_dataloader: _DataLoader,
     model: nn.Module,
     metric: metrics.Metric,
+    device: Optional[str],
 ):
     model.eval()
     valid_loss_sum: torch.Tensor = 0.0
     timer = CtxTimer()
     with torch.no_grad():
+        mix: torch.Tensor
+        target: torch.Tensor
         for mix, target in valid_dataloader:
+            mix = mix.to(device)
+            target = target.to(device)
             separation = model(mix)
             loss = -torch.sum(metric(separation, target))
             valid_loss_sum += loss
     valid_avg_loss = valid_loss_sum.sum().item() / len(valid_dataloader)
     return valid_avg_loss, timer.total
+
+
+def collate_fn(
+    batch: list[tuple[torch.Tensor, torch.Tensor]],
+) -> tuple[torch.Tensor, torch.Tensor]:
+    min_size = min_iter([tensors[0].shape for tensors in batch])
+    mixtures = torch.stack([tensors[0].resize_(*min_size) for tensors in batch])
+    sources = torch.stack([tensors[1].resize_(*min_size) for tensors in batch])
+    return mixtures, sources
 
 
 def train(
@@ -126,11 +146,14 @@ def train(
     metric = train_infer_config["metric"]
     train_dataset = dataset.get_train()
     valid_dataset = dataset.get_valid()
+    pin_memory = train_infer_config["device"] != "cpu"
     train_dataloader = DataLoader(
         train_dataset,
         train_infer_config["batch_size"],
         train_infer_config["shuffle"],
         num_workers=train_infer_config["num_workers"],
+        collate_fn=collate_fn,
+        pin_memory=pin_memory,
         generator=torch.Generator(device=train_infer_config["device"]),
     )
     valid_dataloader = DataLoader(
@@ -138,6 +161,8 @@ def train(
         train_infer_config["batch_size"],
         train_infer_config["shuffle"],
         num_workers=train_infer_config["num_workers"],
+        collate_fn=collate_fn,
+        pin_memory=pin_memory,
         generator=torch.Generator(device=train_infer_config["device"]),
     )
     optimizer = optim.Adam(model.parameters(), train_infer_config["lr"])
@@ -180,11 +205,13 @@ def train(
         logger.info("Epoch %d", epoch)
         #
         train_avg_loss, train_time = _train_loop(
-            train_dataloader, model, metric, optimizer
+            train_dataloader, model, metric, optimizer, train_infer_config["device"]
         )
         logger.info("Train|Time: %f|Loss: %f", train_time, train_avg_loss)
         #
-        valid_avg_loss, valid_time = _valid_loop(valid_dataloader, model, metric)
+        valid_avg_loss, valid_time = _valid_loop(
+            valid_dataloader, model, metric, train_infer_config["device"]
+        )
         logger.info("Valid|Time: %f|Loss: %f", valid_time, valid_avg_loss)
         #
         logger.info(
@@ -221,6 +248,8 @@ def train(
         #
         scheduler.step(train_avg_loss)
     # Log total time
-    logger.info("Training|Epochs: %d|Time: %f", train_infer_config["epochs"], timer.total)
+    logger.info(
+        "Training|Epochs: %d|Time: %f", train_infer_config["epochs"], timer.total
+    )
     # Return the trained model
     return model

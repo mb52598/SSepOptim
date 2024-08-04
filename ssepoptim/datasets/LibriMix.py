@@ -2,7 +2,7 @@ import os
 import shutil
 import subprocess
 import sys
-from typing import Literal, Optional, cast
+from typing import Literal, cast
 
 import torch
 from torch.utils.data import ConcatDataset
@@ -19,7 +19,6 @@ from ssepoptim.utils.type_checker import check_config_entries
 
 class LibriMixDatasetConfig(SpeechSeparationDatasetConfig):
     path: str
-    device: Optional[str]
 
 
 class LibriMixDataset(SpeechSeparationDataset):
@@ -49,7 +48,6 @@ class LibriMixDataset(SpeechSeparationDataset):
                     csv_path,
                     "mixture_path",
                     ["source_1_path", "source_2_path"],
-                    self._config["device"],
                 )
                 for csv_path in csv_paths
             ),

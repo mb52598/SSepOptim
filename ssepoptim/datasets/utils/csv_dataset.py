@@ -11,14 +11,12 @@ class CsvAudioDataset(LenDataset[tuple[torch.Tensor, torch.Tensor]]):
         csv_path: str,
         mixture_field: str,
         source_fields: list[str],
-        device: str | None = None,
     ):
         self._df = pd.read_csv(csv_path)
         self._mixture_field_idx = self._df.columns.get_loc(mixture_field)
         self._source_field_idxs = [
             self._df.columns.get_loc(source_field) for source_field in source_fields
         ]
-        self._device = device
 
     def __len__(self) -> int:
         return len(self._df)
@@ -33,4 +31,4 @@ class CsvAudioDataset(LenDataset[tuple[torch.Tensor, torch.Tensor]]):
         source_tensor = torch.concat(
             [torchaudio.load(source_file)[0] for source_file in source_files]
         )
-        return mixture_tensor.to(self._device), source_tensor.to(self._device)
+        return mixture_tensor, source_tensor
