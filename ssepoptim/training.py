@@ -135,7 +135,7 @@ def train(
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=2)
     checkpointer = Checkpointer(checkpointer_config)
     # Load checkpoint if configured
-    start_epoch = 0
+    start_epoch = 1
     if training_config["load_last_checkpoint"]:
         checkpoints = checkpointer.search_checkpoints(
             model_name,
@@ -174,6 +174,7 @@ def train(
         #
         logger.info(
             "Epoch %d|Time: %f|Loss: %f",
+            epoch,
             train_time + valid_time,
             train_avg_loss + valid_avg_loss,
         )

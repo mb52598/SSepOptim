@@ -86,6 +86,8 @@ class LibriCSSDatasetFactory(SpeechSeparationDatasetFactory):
             "https://drive.google.com/file/d/1Piioxd5G_85K9Bhcr8ebdhXx0CnaHy7l"
         )
 
+        os.makedirs(folder_path, exist_ok=True)
+
         file_id = urlparse(DATASET_URL).path.rsplit("/")[-1]
         zip_path = os.path.join(folder_path, "LibriCSS.zip")
 

@@ -25,7 +25,7 @@ def gdrive_download(
         if not response.ok:
             raise RuntimeError(f"Unable to fetch url: {gdrive_url_confirm}")
 
-    block_size = 1024 * 8
+    block_size = 1024 * 32
     block_number = 0
     content_length_header_key = "Content-Length"
     content_length = (

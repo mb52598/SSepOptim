@@ -37,6 +37,9 @@ class LibriMixDataset(SpeechSeparationDataset):
 class LibriMixDatasetFactory(SpeechSeparationDatasetFactory):
     @staticmethod
     def _download(folder_path: str) -> None:
+        # Create dirs
+        os.makedirs(folder_path, exist_ok=True)
+        # Download repo
         repo_path = os.path.join(folder_path, "LibriMix_git")
         dataset_path = os.path.join(folder_path, "LibriMix")
         clone_retcode = subprocess.call(
@@ -51,17 +54,58 @@ class LibriMixDatasetFactory(SpeechSeparationDatasetFactory):
             raise RuntimeError(
                 f"Unable to clone LibriMix git repository, errcode {clone_retcode}"
             )
+        # Chmod download script
         script_path = os.path.join(repo_path, "generate_librimix.sh")
         chmod_retcode = subprocess.call(["chmod", "+x", script_path])
         if chmod_retcode != 0:
             raise RuntimeError(
                 f'Unable to chmod LibriMix download script at path "{script_path}", errcode {chmod_retcode}'
             )
+        # Change the script
+        sed_retcode = 0
+        scripts_path = os.path.join(repo_path, "scripts").replace("/", "\\/")
+        sed_retcode += subprocess.call(
+            [
+                "sed",
+                "-i",
+                f"s/scripts\\/augment_train_noise.py/{scripts_path}\\/augment_train_noise.py/",
+                script_path,
+            ]
+        )
+        sed_retcode += subprocess.call(
+            [
+                "sed",
+                "-i",
+                f"s/scripts\\/create_librimix_from_metadata.py/{scripts_path}\\/create_librimix_from_metadata.py/",
+                script_path,
+            ]
+        )
+        sed_retcode += subprocess.call(
+            ["sed", "-i", "s/for n_src in 2 3; do/for n_src in 2; do/", script_path]
+        )
+        sed_retcode += subprocess.call(
+            ["sed", "-i", "s/--freqs 8k 16k/--freqs 8k/", script_path]
+        )
+        sed_retcode += subprocess.call(
+            ["sed", "-i", "s/--modes min max/--modes min/", script_path]
+        )
+        sed_retcode += subprocess.call(
+            [
+                "sed",
+                "-i",
+                "s/--types mix_clean mix_both mix_single/--types mix_both/",
+                script_path,
+            ]
+        )
+        if sed_retcode != 0:
+            raise RuntimeError("Failed to change LibriMix script")
+        # Call the download script
         script_retcode = subprocess.call([script_path, dataset_path])
         if script_retcode != 0:
             raise RuntimeError(
-                f"Unable to create LibriMix dataset, errcode {script_retcode}"
+                f"Unable to execute LibriMix script, errcode {script_retcode}"
             )
+        # Remove repo
         shutil.rmtree(repo_path)
 
     @staticmethod
