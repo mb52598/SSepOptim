@@ -121,7 +121,7 @@ def _test_loop(
     device: Optional[str],
 ):
     model.eval()
-    test_losses_sum: torch.Tensor = torch.zeros([len(metrics)])
+    test_metrics_sum: torch.Tensor = torch.zeros([len(metrics)])
     timer = CtxTimer()
     with torch.no_grad():
         mix: torch.Tensor
@@ -130,12 +130,12 @@ def _test_loop(
             mix = mix.to(device)
             target = target.to(device)
             separation = model(mix)
-            losses = torch.stack(
-                [-torch.sum(metric(separation, target)) for metric in metrics]
+            metric_values = torch.stack(
+                [torch.sum(metric(separation, target)) for metric in metrics]
             )
-            test_losses_sum += losses
-    test_avg_losses = test_losses_sum / len(test_dataloader)
-    return test_avg_losses, timer.total
+            test_metrics_sum += metric_values
+    test_avg_metrics = test_metrics_sum / len(test_dataloader)
+    return test_avg_metrics, timer.total
 
 
 def _collate_fn(
@@ -350,7 +350,7 @@ def test(
     # Apply optimizations and begin data loop
     model = Optimizations.apply(model, optimizations, stage="test")
     # Data loop
-    test_avg_losses, test_time = _test_loop(
+    test_avg_metrics, test_time = _test_loop(
         test_dataloader,
         model,
         train_infer_config["test_metrics"],
@@ -358,9 +358,9 @@ def test(
     )
     # Log data
     logger.info(
-        "Test|Time: %f|Losses: {}".format(", ".join(["%f"] * len(test_avg_losses))),
+        "Test|Time: %f|Metrics: {}".format(", ".join(["%f"] * len(test_avg_metrics))),
         test_time,
-        *test_avg_losses,
+        *test_avg_metrics,
     )
 
 
