@@ -11,7 +11,7 @@ from ssepoptim.base.configuration import BaseConfig, ConfigLoader
 from ssepoptim.dataset import SpeechSeparationDatasetFactory
 from ssepoptim.model import ModelFactory
 from ssepoptim.optimization import OptimizationFactory
-from ssepoptim.training_inference import TrainingInferenceConfig, train
+from ssepoptim.training_inference import TrainingInferenceConfig, train_test
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,9 @@ def main(config_path: str):
             else None
         ),
         filemode="x",
+        format="[{levelname:^8s}] {asctime} {name:32s} {message}",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        style="{",
         level=getattr(logging, config["log_level"]),
     )
     # Print tag
@@ -65,9 +68,8 @@ def main(config_path: str):
         "Using optimizations: %s",
         ", ".join(config["optimizations"]),
     )
-    logger.info("Using metric: %s", train_infer_config["metric"].__name__)
-    # Train
-    train(
+    # Train and test
+    train_test(
         config["model"],
         config["dataset"],
         config["optimizations"],
@@ -77,4 +79,3 @@ def main(config_path: str):
         checkpointer_config,
         train_infer_config,
     )
-    # Evaluate

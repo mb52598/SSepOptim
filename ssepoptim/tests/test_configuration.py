@@ -31,7 +31,7 @@ def get_invalid_test_config():
         e: Optional[int]
         f: Union[int, None]
         g: list[int]
-        h: nn.Module
+        h: type[nn.Module]
 
     return TestConfig
 
