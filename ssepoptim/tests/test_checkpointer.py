@@ -28,7 +28,7 @@ class ExampleModel(nn.Module):
 class TestCheckpointer(unittest.TestCase):
     def setUp(self) -> None:
         self.path = "checkpoints/"
-        self.checkpointer = Checkpointer({"path": self.path})
+        self.checkpointer = Checkpointer(self.path)
         self.model_class = ExampleModel
         self.model_name = self.model_class.__name__
 

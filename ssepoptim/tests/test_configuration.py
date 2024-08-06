@@ -54,7 +54,7 @@ def test_function(a: float, b: int) -> str:
     return f"{a} = {b}"
 
 
-class TestCheckpointer(unittest.TestCase):
+class TestConfiguration(unittest.TestCase):
     def setUp(self) -> None:
         self._test_config_filename = "_test_config.ini"
         test_config = """

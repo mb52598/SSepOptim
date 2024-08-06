@@ -6,7 +6,6 @@ from typing import Literal, Optional
 import ssepoptim.datasets as _
 import ssepoptim.models as _
 import ssepoptim.optimizations as _
-from ssepoptim.base.checkpointing import CheckpointerConfig
 from ssepoptim.base.configuration import BaseConfig, ConfigLoader
 from ssepoptim.dataset import SpeechSeparationDatasetFactory
 from ssepoptim.model import ModelFactory
@@ -44,14 +43,14 @@ def main(config_path: str):
         loader.get_config(OpimizationConfigClass)
         for OpimizationConfigClass in OptimizationConfigClasses
     ]
-    checkpointer_config = loader.get_config(CheckpointerConfig)
     # Logging
+    if config["logs_path"] is not None:
+        os.makedirs(config["logs_path"], exist_ok=True)
+        log_filename = os.path.join(config["logs_path"], f"{datetime.now().isoformat()}.log")
+    else:
+        log_filename = None
     logging.basicConfig(
-        filename=(
-            os.path.join(config["logs_path"], f"{datetime.now().isoformat()}.log")
-            if config["logs_path"]
-            else None
-        ),
+        filename=log_filename,
         filemode="x",
         format="[{levelname:^8s}] {asctime} {name:32s} {message}",
         datefmt="%Y-%m-%d %H:%M:%S",
@@ -76,6 +75,5 @@ def main(config_path: str):
         model_config,
         dataset_config,
         optimization_configs,
-        checkpointer_config,
         train_infer_config,
     )

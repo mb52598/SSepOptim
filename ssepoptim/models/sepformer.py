@@ -72,7 +72,7 @@ class Sepformer(nn.Module):
         self._decoder = get_decoder(config)
 
     def forward(self, mix: torch.Tensor) -> torch.Tensor:
-        mix = mix.squeeze(0)
+        mix = mix.squeeze(-2)
         encoded_mix = self._encoder(mix)
         est_mask = self._masknet(encoded_mix)
         encoded_mix_stack = torch.stack(

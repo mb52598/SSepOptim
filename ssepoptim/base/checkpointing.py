@@ -4,23 +4,15 @@ from typing import Any, Literal, Optional, overload
 
 import torch
 
-from ssepoptim.base.configuration import BaseConfig
-
-
-class CheckpointerConfig(BaseConfig):
-    path: str
-
 
 class Checkpointer:
     TIME_METADATA = "time"
     _JOIN_CHARACTER = "|"
     _NAME_CHARACTER = "="
 
-    def __init__(self, config: CheckpointerConfig, folder_path: list[str] = []):
-        self._path = os.path.join(
-            config["path"],
-            *folder_path,
-        )
+    def __init__(self, path: str, device: Optional[str] = None):
+        self._path = path
+        self._device = device
         os.makedirs(self._path, exist_ok=True)
 
     @staticmethod
@@ -99,9 +91,11 @@ class Checkpointer:
     ) -> tuple[dict[str, Any], dict[str, Any]] | dict[str, Any]:
         path = self._get_checkpoint_path(checkpoint_filename)
         with open(path, "rb") as file:
-            hidden_metadata = torch.load(file)
+            hidden_metadata = torch.load(
+                file, map_location=self._device, weights_only=False
+            )
             if load_data:
-                data = torch.load(file)
+                data = torch.load(file, map_location=self._device, weights_only=False)
                 return hidden_metadata, data
             return hidden_metadata
 
