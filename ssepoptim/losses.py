@@ -1,4 +1,4 @@
-from itertools import permutations
+from itertools import cycle, islice, permutations
 from typing import Callable
 
 import torch
@@ -62,14 +62,18 @@ def create_permutation_invariant_loss(loss: Loss, greedy: bool = False) -> Loss:
             # Dim: [channel, channel]
             lowest_loss = None
             if greedy:
-                # Complexity: ((channel + 1) * channel) / 2 ~= channel ** 2
-                channels_left = list(range(channels))
-                indexes: list[int] = []
-                for loss_row in loss_mat:
-                    index = int(loss_row[channels_left].argmin().item())
-                    indexes.append(channels_left[index])
-                    del channels_left[index]
-                lowest_loss = torch.mean(loss_mat[range(channels), indexes])
+                # Complexity: channel * (((channel + 1) * channel) / 2) ~= channel ** 3
+                channels_left_cycle = cycle(range(channels))
+                for _ in range(channels):
+                    channels_left = list(islice(channels_left_cycle, 1, channels + 1))
+                    indexes: list[int] = []
+                    for loss_row in loss_mat:
+                        index = int(loss_row[channels_left].argmin().item())
+                        indexes.append(channels_left[index])
+                        del channels_left[index]
+                    candidate_loss = torch.mean(loss_mat[range(channels), indexes])
+                    if lowest_loss is None or candidate_loss < lowest_loss:
+                        lowest_loss = candidate_loss
             else:
                 # Complexity: factorial(channel)
                 for p in permutations(range(channels)):
