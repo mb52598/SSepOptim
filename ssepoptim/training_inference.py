@@ -84,7 +84,7 @@ def _train_loop(
         mix = mix.to(device)
         target = target.to(device)
         separation = model(mix)
-        separation_loss = torch.sum(loss(separation, target))
+        separation_loss = torch.mean(loss(separation, target), dim=0)
         train_loss_sum += separation_loss
         optimizer.zero_grad(set_to_none=True)
         separation_loss.backward()
@@ -109,7 +109,7 @@ def _valid_loop(
             mix = mix.to(device)
             target = target.to(device)
             separation = model(mix)
-            separation_loss = torch.sum(loss(separation, target))
+            separation_loss = torch.mean(loss(separation, target), dim=0)
             valid_loss_sum += separation_loss
     valid_avg_loss = valid_loss_sum.item() / len(valid_dataloader)
     return valid_avg_loss, timer.total
@@ -133,9 +133,9 @@ def _test_loop(
             mix = mix.to(device)
             target = target.to(device)
             separation = model(mix)
-            separation_loss = torch.sum(loss(separation, target))
+            separation_loss = torch.mean(loss(separation, target), dim=0)
             metric_values = torch.stack(
-                [torch.sum(metric(separation, target)) for metric in metrics]
+                [torch.mean(metric(separation, target)) for metric in metrics]
             )
             test_loss_sum += separation_loss
             test_metrics_sum += metric_values
