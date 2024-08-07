@@ -241,14 +241,13 @@ def train(
     optimizations: list[Optimization],
     checkpointer: Checkpointer,
     checkpoint: tuple[str, dict[str, str], dict[str, Any], dict[str, Any]] | None,
+    loss: losses.Loss,
     model_config: ModelConfig,
     dataset_config: SpeechSeparationDatasetConfig,
     optimization_configs: list[OptimizationConfig],
     train_infer_config: TrainingInferenceConfig,
 ):
-    logger.info("Using loss: %s", train_infer_config["loss"].__name__)
     # Setup variables
-    loss = train_infer_config["loss"]
     train_dataloader = _get_dataloader(dataset.get_train(), train_infer_config)
     valid_dataloader = _get_dataloader(dataset.get_valid(), train_infer_config)
     optimizer = optim.Adam(model.parameters(), train_infer_config["lr"])
@@ -324,6 +323,7 @@ def test(
     dataset: SpeechSeparationDataset,
     optimizations: list[Optimization],
     checkpoint: tuple[str, dict[str, str], dict[str, Any], dict[str, Any]] | None,
+    loss: losses.Loss,
     train_infer_config: TrainingInferenceConfig,
 ):
     logger.info(
@@ -345,7 +345,7 @@ def test(
     test_avg_loss, test_avg_metrics, test_time = _test_loop(
         test_dataloader,
         model,
-        train_infer_config["loss"],
+        loss,
         train_infer_config["test_metrics"],
         train_infer_config["device"],
     )
@@ -396,6 +396,7 @@ def train_test(
     checkpointer = Checkpointer(
         train_infer_config["checkpoints_path"], train_infer_config["device"]
     )
+    loss = losses.create_permutation_invariant_loss(train_infer_config["loss"])
     # Load checkpoint
     checkpoint = None
     if train_infer_config["load_last_checkpoint"] or train_infer_config["test_only"]:
@@ -419,6 +420,7 @@ def train_test(
     # Log variables
     logger.info("Using id: %s", identifier)
     logger.info("Using seed: %d", seed)
+    logger.info("Using loss: %s", train_infer_config["loss"].__name__)
     # Train (if enabled)
     if not train_infer_config["test_only"]:
         train(
@@ -429,6 +431,7 @@ def train_test(
             optimizations,
             checkpointer,
             checkpoint,
+            loss,
             model_config,
             dataset_config,
             optimization_configs,
@@ -440,6 +443,7 @@ def train_test(
         dataset,
         optimizations,
         checkpoint,
+        loss,
         train_infer_config,
     )
     # Return the trained model

@@ -25,14 +25,14 @@ def signal_to_noise_ratio(
     Parameters
     ----------
     prediction : torch.Tensor
-        Prediction tensor of shape (..., time)
+        Prediction tensor of shape [batch, channel, time]
     target : torch.Tensor
-        Target tensor of shape (..., time)
+        Target tensor of shape [batch, channel, time]
 
     Returns
     -------
     torch.Tensor
-        Differentiable tensor representing SNR loss
+        SNR loss tensor of shape [batch, channel]
     """
     eps = torch.finfo(prediction.dtype).eps
     signal = target
@@ -49,14 +49,14 @@ def scale_invariant_signal_to_noise_ratio(
     Parameters
     ----------
     prediction : torch.Tensor
-        Prediction tensor of shape (..., time)
+        Prediction tensor of shape [batch, channel, time]
     target : torch.Tensor
-        Target tensor of shape (..., time)
+        Target tensor of shape [batch, channel, time]
 
     Returns
     -------
     torch.Tensor
-        Differentiable tensor representing SNR loss
+        SI-SNR loss tensor of shape [batch, channel]
     """
     raise NotImplementedError("U wot")
 
@@ -69,14 +69,14 @@ def scale_invariant_signal_to_distortion_ratio(
     Parameters
     ----------
     prediction : torch.Tensor
-        Prediction tensor of shape (..., time)
+        Prediction tensor of shape [batch, channel, time]
     target : torch.Tensor
-        Target tensor of shape (..., time)
+        Target tensor of shape [batch, channel, time]
 
     Returns
     -------
     torch.Tensor
-        Differentiable tensor representing SI-SDR loss
+        SI-SDR loss tensor of shape [batch, channel]
     """
     eps = torch.finfo(prediction.dtype).eps
 
