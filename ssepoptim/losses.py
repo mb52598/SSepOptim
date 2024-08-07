@@ -32,7 +32,7 @@ def scale_invariant_signal_to_distortion_ratio_loss(
 
 def create_permutation_invariant_loss(loss: Loss) -> Loss:
     def pil(prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        """Prediction invariant wrapper around provided loss
+        """Permutation invariant wrapper around provided loss
 
         Parameters
         ----------
@@ -51,8 +51,8 @@ def create_permutation_invariant_loss(loss: Loss) -> Loss:
         channels = prediction.shape[1]
         for pred, tgt in zip(prediction, target):
             # Dim: [channel, time]
-            pred = pred.unsqueeze(0).expand(channels, *pred.shape)
-            tgt = tgt.unsqueeze(1).expand(tgt.shape[0], channels, *tgt.shape[1:])
+            pred = pred.unsqueeze(0).expand(channels, -1, -1)
+            tgt = tgt.unsqueeze(1).expand(-1, channels, -1)
             # Dim: [channel, channel, time]
             loss_mat = loss(pred, tgt)
             # Dim: [channel, channel, time?]
