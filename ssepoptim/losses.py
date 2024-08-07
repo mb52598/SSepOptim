@@ -30,7 +30,7 @@ def scale_invariant_signal_to_distortion_ratio_loss(
     return -scale_invariant_signal_to_distortion_ratio(prediction, target)
 
 
-def create_permutation_invariant_loss(loss: Loss) -> Loss:
+def create_permutation_invariant_loss(loss: Loss, greedy: bool = False) -> Loss:
     def pil(prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """Permutation invariant wrapper around provided loss
 
@@ -61,10 +61,21 @@ def create_permutation_invariant_loss(loss: Loss) -> Loss:
                 loss_mat = torch.mean(loss_mat, dim=-1)
             # Dim: [channel, channel]
             lowest_loss = None
-            for p in permutations(range(channels)):
-                candidate_loss = torch.mean(loss_mat[range(channels), p])
-                if lowest_loss is None or candidate_loss < lowest_loss:
-                    lowest_loss = candidate_loss
+            if greedy:
+                # Complexity: ((channel + 1) * channel) / 2 ~= channel ** 2
+                channels_left = list(range(channels))
+                indexes: list[int] = []
+                for loss_row in loss_mat:
+                    index = int(loss_row[channels_left].argmin().item())
+                    indexes.append(channels_left[index])
+                    del channels_left[index]
+                lowest_loss = torch.mean(loss_mat[range(channels), indexes])
+            else:
+                # Complexity: factorial(channel)
+                for p in permutations(range(channels)):
+                    candidate_loss = torch.mean(loss_mat[range(channels), p])
+                    if lowest_loss is None or candidate_loss < lowest_loss:
+                        lowest_loss = candidate_loss
             # Dim: [1]
             assert lowest_loss is not None
             losses.append(lowest_loss)

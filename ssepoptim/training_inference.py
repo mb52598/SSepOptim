@@ -60,6 +60,7 @@ class TrainingInferenceConfig(BaseConfig):
     checkpoint_epoch_log: int
     device: Optional[str]
     loss: losses.Loss
+    use_greedy_permutation_invariant_loss: bool
     load_last_checkpoint: bool
     seed: Optional[int]
     apply_performance_optimizers: Optional[bool]
@@ -396,7 +397,10 @@ def train_test(
     checkpointer = Checkpointer(
         train_infer_config["checkpoints_path"], train_infer_config["device"]
     )
-    loss = losses.create_permutation_invariant_loss(train_infer_config["loss"])
+    loss = losses.create_permutation_invariant_loss(
+        train_infer_config["loss"],
+        train_infer_config["use_greedy_permutation_invariant_loss"],
+    )
     # Load checkpoint
     checkpoint = None
     if train_infer_config["load_last_checkpoint"] or train_infer_config["test_only"]:
