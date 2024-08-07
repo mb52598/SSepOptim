@@ -76,7 +76,7 @@ def scale_invariant_signal_to_distortion_ratio(
     Returns
     -------
     torch.Tensor
-        Differentiable tensor representing SNR loss
+        Differentiable tensor representing SI-SDR loss
     """
     eps = torch.finfo(prediction.dtype).eps
 

@@ -9,7 +9,6 @@ from ssepoptim.dataset import (
     SpeechSeparationDatasetFactory,
 )
 from ssepoptim.datasets.utils.audio_files_dataset import SplitAudioFilesDataset
-from ssepoptim.datasets.utils.gdrive_download import gdrive_download
 from ssepoptim.datasets.utils.split_data import split_data
 from ssepoptim.utils.type_checker import check_config_entries
 
@@ -71,6 +70,8 @@ class LibriCSSDataset(SpeechSeparationDataset):
 class LibriCSSDatasetFactory(SpeechSeparationDatasetFactory):
     @staticmethod
     def _download(folder_path: str) -> None:
+        from ssepoptim.datasets.utils.gdrive_download import gdrive_download
+
         def _progress_hook(block_number: int, block_size: int, total_size: int):
             total_blocks = total_size // block_size
             print(

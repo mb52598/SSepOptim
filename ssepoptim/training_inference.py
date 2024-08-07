@@ -9,6 +9,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
+import ssepoptim.losses as losses
 import ssepoptim.metrics as metrics
 from ssepoptim.base.checkpointing import Checkpointer
 from ssepoptim.base.configuration import BaseConfig
@@ -58,7 +59,7 @@ class TrainingInferenceConfig(BaseConfig):
     num_workers: int
     checkpoint_epoch_log: int
     device: Optional[str]
-    metric: metrics.Metric
+    loss: losses.Loss
     load_last_checkpoint: bool
     seed: Optional[int]
     apply_performance_optimizers: Optional[bool]
@@ -70,7 +71,7 @@ class TrainingInferenceConfig(BaseConfig):
 def _train_loop(
     train_dataloader: _DataLoader,
     model: nn.Module,
-    metric: metrics.Metric,
+    loss: losses.Loss,
     optimizer: optim.Optimizer,
     device: Optional[str],
 ):
@@ -83,10 +84,10 @@ def _train_loop(
         mix = mix.to(device)
         target = target.to(device)
         separation = model(mix)
-        loss = -torch.sum(metric(separation, target))
-        train_loss_sum += loss
+        separation_loss = torch.sum(loss(separation, target))
+        train_loss_sum += separation_loss
         optimizer.zero_grad(set_to_none=True)
-        loss.backward()
+        separation_loss.backward()
         optimizer.step()
     train_avg_loss = train_loss_sum.item() / len(train_dataloader)
     return train_avg_loss, timer.total
@@ -95,7 +96,7 @@ def _train_loop(
 def _valid_loop(
     valid_dataloader: _DataLoader,
     model: nn.Module,
-    metric: metrics.Metric,
+    loss: losses.Loss,
     device: Optional[str],
 ):
     model.eval()
@@ -108,8 +109,8 @@ def _valid_loop(
             mix = mix.to(device)
             target = target.to(device)
             separation = model(mix)
-            loss = -torch.sum(metric(separation, target))
-            valid_loss_sum += loss
+            separation_loss = torch.sum(loss(separation, target))
+            valid_loss_sum += separation_loss
     valid_avg_loss = valid_loss_sum.item() / len(valid_dataloader)
     return valid_avg_loss, timer.total
 
@@ -117,10 +118,12 @@ def _valid_loop(
 def _test_loop(
     test_dataloader: _DataLoader,
     model: nn.Module,
+    loss: losses.Loss,
     metrics: list[metrics.Metric],
     device: Optional[str],
 ):
     model.eval()
+    test_loss_sum = torch.zeros(1)
     test_metrics_sum: torch.Tensor = torch.zeros([len(metrics)])
     timer = CtxTimer()
     with torch.no_grad():
@@ -130,12 +133,15 @@ def _test_loop(
             mix = mix.to(device)
             target = target.to(device)
             separation = model(mix)
+            separation_loss = torch.sum(loss(separation, target))
             metric_values = torch.stack(
                 [torch.sum(metric(separation, target)) for metric in metrics]
             )
+            test_loss_sum += separation_loss
             test_metrics_sum += metric_values
+    test_avg_loss = test_loss_sum.item() / len(test_dataloader)
     test_avg_metrics = test_metrics_sum / len(test_dataloader)
-    return test_avg_metrics, timer.total
+    return test_avg_loss, test_avg_metrics, timer.total
 
 
 def _collate_fn(
@@ -240,9 +246,9 @@ def train(
     optimization_configs: list[OptimizationConfig],
     train_infer_config: TrainingInferenceConfig,
 ):
-    logger.info("Using metric: %s", train_infer_config["metric"].__name__)
+    logger.info("Using loss: %s", train_infer_config["loss"].__name__)
     # Setup variables
-    metric = train_infer_config["metric"]
+    loss = train_infer_config["loss"]
     train_dataloader = _get_dataloader(dataset.get_train(), train_infer_config)
     valid_dataloader = _get_dataloader(dataset.get_valid(), train_infer_config)
     optimizer = optim.Adam(model.parameters(), train_infer_config["lr"])
@@ -269,12 +275,12 @@ def train(
         logger.info("Epoch %d", epoch)
         #
         train_avg_loss, train_time = _train_loop(
-            train_dataloader, model, metric, optimizer, train_infer_config["device"]
+            train_dataloader, model, loss, optimizer, train_infer_config["device"]
         )
         logger.info("Train|Time: %f|Loss: %f", train_time, train_avg_loss)
         #
         valid_avg_loss, valid_time = _valid_loop(
-            valid_dataloader, model, metric, train_infer_config["device"]
+            valid_dataloader, model, loss, train_infer_config["device"]
         )
         logger.info("Valid|Time: %f|Loss: %f", valid_time, valid_avg_loss)
         #
@@ -305,8 +311,12 @@ def train(
         scheduler.step(train_avg_loss)
     # Log total time
     logger.info(
-        "Training|Epochs: %d|Time: %f", train_infer_config["epochs"], timer.total
+        "Training|Epochs: %d|Time: %f|Max cuda memory: %d",
+        train_infer_config["epochs"],
+        timer.total,
+        torch.cuda.max_memory_allocated(train_infer_config["device"]),
     )
+    torch.cuda.reset_peak_memory_stats(train_infer_config["device"])
 
 
 def test(
@@ -332,18 +342,23 @@ def test(
     # Apply optimizations and begin data loop
     model = Optimizations.apply(model, optimizations, stage="test")
     # Data loop
-    test_avg_metrics, test_time = _test_loop(
+    test_avg_loss, test_avg_metrics, test_time = _test_loop(
         test_dataloader,
         model,
+        train_infer_config["loss"],
         train_infer_config["test_metrics"],
         train_infer_config["device"],
     )
     # Log data
+    metrics_str = ", ".join(["%f"] * len(test_avg_metrics))
     logger.info(
-        "Test|Time: %f|Metrics: {}".format(", ".join(["%f"] * len(test_avg_metrics))),
+        f"Test|Time: %f|Loss: %f|Metrics: {metrics_str}|Max cuda memory: %d",
         test_time,
+        test_avg_loss,
         *test_avg_metrics,
+        torch.cuda.max_memory_allocated(train_infer_config["device"]),
     )
+    torch.cuda.reset_peak_memory_stats(train_infer_config["device"])
 
 
 def train_test(

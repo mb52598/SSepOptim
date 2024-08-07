@@ -9,7 +9,6 @@ dependencies = [
     "torch>=2.3.1",
     "torchaudio>=2.3.1",
     "pandas>=2.2.2",
-    "requests>=2.32.3",
 ]
 classifiers = [
     "Environment :: Console",
@@ -32,6 +31,7 @@ install = [
     "soundfile>=0.12.1",
     "numpy>=1.26.3",
     "scipy>=1.13.1",
+    "requests>=2.32.3",
 ]
 
 [tool.setuptools.packages.find]
