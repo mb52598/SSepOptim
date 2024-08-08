@@ -164,3 +164,4 @@ cython_debug/
 checkpoints/
 logs/
 datasets_dir/
+compile_commands.json

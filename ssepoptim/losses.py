@@ -2,6 +2,7 @@ from itertools import cycle, islice, permutations
 from typing import Callable
 
 import torch
+import torch.nn as nn
 
 from ssepoptim.metrics import (
     scale_invariant_signal_to_distortion_ratio,
@@ -30,8 +31,14 @@ def scale_invariant_signal_to_distortion_ratio_loss(
     return -scale_invariant_signal_to_distortion_ratio(prediction, target)
 
 
-def create_permutation_invariant_loss(loss: Loss, greedy: bool = False) -> Loss:
-    def pil(prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+class PermutationInvariantLoss(nn.Module):
+    def __init__(self, loss: Loss, greedy: bool = False):
+        super().__init__()
+
+        self._loss = loss
+        self._greedy = greedy
+
+    def forward(self, prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """Permutation invariant wrapper around provided loss
 
         Parameters
@@ -54,24 +61,25 @@ def create_permutation_invariant_loss(loss: Loss, greedy: bool = False) -> Loss:
             pred = pred.unsqueeze(0).expand(channels, -1, -1)
             tgt = tgt.unsqueeze(1).expand(-1, channels, -1)
             # Dim: [channel, channel, time]
-            loss_mat = loss(pred, tgt)
+            loss_mat = self._loss(pred, tgt)
             # Dim: [channel, channel, time?]
             assert loss_mat.dim() in [2, 3]
             if loss_mat.dim() > 2:
                 loss_mat = torch.mean(loss_mat, dim=-1)
             # Dim: [channel, channel]
             lowest_loss = None
-            if greedy:
+            if self._greedy:
                 # Complexity: channel * (((channel + 1) * channel) / 2) ~= channel ** 3
                 channels_left_cycle = cycle(range(channels))
                 for _ in range(channels):
-                    channels_left = list(islice(channels_left_cycle, 1, channels + 1))
+                    channels_left = list(range(channels))
                     indexes: list[int] = []
-                    for loss_row in loss_mat:
-                        index = int(loss_row[channels_left].argmin().item())
+                    row_indexes = list(islice(channels_left_cycle, 1, channels + 1))
+                    for row_index in row_indexes:
+                        index = int(loss_mat[row_index, channels_left].argmin().item())
                         indexes.append(channels_left[index])
                         del channels_left[index]
-                    candidate_loss = torch.mean(loss_mat[range(channels), indexes])
+                    candidate_loss = torch.sum(loss_mat[row_indexes, indexes])
                     if lowest_loss is None or candidate_loss < lowest_loss:
                         lowest_loss = candidate_loss
             else:
@@ -84,5 +92,3 @@ def create_permutation_invariant_loss(loss: Loss, greedy: bool = False) -> Loss:
             assert lowest_loss is not None
             losses.append(lowest_loss)
         return torch.stack(losses)
-
-    return pil

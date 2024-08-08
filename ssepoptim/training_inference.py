@@ -397,7 +397,7 @@ def train_test(
     checkpointer = Checkpointer(
         train_infer_config["checkpoints_path"], train_infer_config["device"]
     )
-    loss = losses.create_permutation_invariant_loss(
+    loss = losses.PermutationInvariantLoss(
         train_infer_config["loss"],
         train_infer_config["use_greedy_permutation_invariant_loss"],
     )
