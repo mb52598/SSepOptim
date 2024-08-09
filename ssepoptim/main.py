@@ -10,7 +10,7 @@ from ssepoptim.base.configuration import BaseConfig, ConfigLoader
 from ssepoptim.dataset import SpeechSeparationDatasetFactory
 from ssepoptim.model import ModelFactory
 from ssepoptim.optimization import OptimizationFactory
-from ssepoptim.training_inference import TrainingInferenceConfig, train_test
+from ssepoptim.training_inference import TrainingConfig, train_test
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ def main(config_path: str):
     # Configurations
     loader = ConfigLoader(config_path)
     config = loader.get_config(MainConfig)
-    train_infer_config = loader.get_config(TrainingInferenceConfig)
+    train_config = loader.get_config(TrainingConfig)
     ModelConfigClass = ModelFactory.get_config(config["model"])
     model_config = loader.get_config(ModelConfigClass)
     DatasetConfigClass = SpeechSeparationDatasetFactory.get_config(config["dataset"])
@@ -46,13 +46,15 @@ def main(config_path: str):
     # Logging
     if config["logs_path"] is not None:
         os.makedirs(config["logs_path"], exist_ok=True)
-        log_filename = os.path.join(config["logs_path"], f"{datetime.now().isoformat()}.log")
+        log_filename = os.path.join(
+            config["logs_path"], f"{datetime.now().isoformat()}.log"
+        )
     else:
         log_filename = None
     logging.basicConfig(
         filename=log_filename,
         filemode="x",
-        format="[{levelname:^8s}] {asctime} {name:32s} {message}",
+        format="[{levelname:^8s}] <{process}:{thread}> {asctime} {name:32s} {message}",
         datefmt="%Y-%m-%d %H:%M:%S",
         style="{",
         level=getattr(logging, config["log_level"]),
@@ -75,5 +77,5 @@ def main(config_path: str):
         model_config,
         dataset_config,
         optimization_configs,
-        train_infer_config,
+        train_config,
     )

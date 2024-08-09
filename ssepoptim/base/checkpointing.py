@@ -10,7 +10,7 @@ class Checkpointer:
     _JOIN_CHARACTER = "|"
     _NAME_CHARACTER = "="
 
-    def __init__(self, path: str, device: Optional[str] = None):
+    def __init__(self, path: str, device: Optional[torch.device] = None):
         self._path = path
         self._device = device
         os.makedirs(self._path, exist_ok=True)

@@ -1,4 +1,5 @@
-from typing import Iterator
+import timeit
+from typing import Any, Iterator
 
 import torch.nn as nn
 
@@ -54,3 +55,7 @@ def get_model_named_parameters_memory_usage(
     for name, parameter in get_model_named_parameters(model, only_trainable):
         result.append((name, parameter.numel() * parameter.element_size()))
     return result
+
+
+def get_model_latency(model: nn.Module, *input: Any, number: int = 1000000) -> float:
+    return timeit.timeit(lambda: model(*input), number=number)
