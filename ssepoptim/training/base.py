@@ -66,7 +66,7 @@ def train_loop(
     device: Optional[torch.device],
 ):
     model.train()
-    train_loss_sum = torch.zeros(1)
+    train_loss_sum = torch.zeros(1, device=device)
     timer = CtxTimer()
     mix: torch.Tensor
     target: torch.Tensor
@@ -90,7 +90,7 @@ def valid_loop(
     device: Optional[torch.device],
 ):
     model.eval()
-    valid_loss_sum = torch.zeros(1)
+    valid_loss_sum = torch.zeros(1, device=device)
     timer = CtxTimer()
     with torch.no_grad():
         mix: torch.Tensor
@@ -113,8 +113,8 @@ def test_loop(
     device: Optional[torch.device],
 ):
     model.eval()
-    test_loss_sum = torch.zeros(1)
-    test_metrics_sum: torch.Tensor = torch.zeros([len(metrics)])
+    test_loss_sum = torch.zeros(1, device=device)
+    test_metrics_sum: torch.Tensor = torch.zeros(len(metrics), device=device)
     timer = CtxTimer()
     with torch.no_grad():
         mix: torch.Tensor

@@ -62,11 +62,13 @@ def train_test(
         rank = dist.get_rank()
         device_id = rank % torch.cuda.device_count()
         torch.cuda.set_device(device_id)
+        device = torch.device("cuda", device_id)
+        torch.set_default_device(device)
         train_test_loop(
             identifier,
             seed,
             checkpoint_name,
-            torch.device("cuda", device_id),
+            device,
             model_name,
             dataset_name,
             optimization_names,
@@ -78,12 +80,15 @@ def train_test(
         dist.destroy_process_group()
     else:
         if train_config["device"] is not None:
-            torch.set_default_device(train_config["device"])
+            device = torch.device(train_config["device"])
+        else:
+            device = torch.get_default_device()
+        torch.set_default_device(device)
         train_test_loop(
             identifier,
             seed,
             checkpoint_name,
-            torch.get_default_device(),
+            device,
             model_name,
             dataset_name,
             optimization_names,

@@ -3,6 +3,7 @@ import random
 from typing import Optional, cast
 
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 import torch.optim as optim
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -67,7 +68,7 @@ def _get_dataloader(
             num_workers=train_config["num_workers"],
             collate_fn=collate_fn,
             pin_memory=pin_memory,
-            generator=torch.Generator(device="cuda"),
+            generator=torch.Generator(device=device),
         )
 
 
@@ -153,7 +154,9 @@ def _train(
     # Transfer the model to the device
     model = model.to(device)
     # If we are distributed wrap the model in DDP
+    rank = None
     if train_config["distributed_training"]:
+        rank = dist.get_rank()
         model = DDP(model, device_ids=[device.index])
     # Data loop
     timer = CtxTimer()
@@ -181,7 +184,7 @@ def _train(
         )
         #
         if epoch % train_config["checkpoint_epoch_log"] == 0:
-            if not train_config["distributed_training"] or device.index == 0:
+            if not train_config["distributed_training"] or rank == 0:
                 checkpoint_saver.save_checkpoint(
                     checkpointer,
                     epoch,

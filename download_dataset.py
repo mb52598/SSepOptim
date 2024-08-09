@@ -37,7 +37,11 @@ def main():
         nargs="?",
     )
     args: Arguments = cast(Arguments, parser.parse_args())
-    SpeechSeparationDatasetFactory.download(args.dataset, args.path)
+    if args.download_all:
+        for dataset in SpeechSeparationDatasetFactory.list_entries():
+            SpeechSeparationDatasetFactory.download(dataset, args.path)
+    else:
+        SpeechSeparationDatasetFactory.download(args.dataset, args.path)
 
 
 if __name__ == "__main__":
