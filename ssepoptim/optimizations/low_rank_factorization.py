@@ -11,7 +11,7 @@ from ssepoptim.utils.type_checker import check_config_entries
 
 
 class LowRankFactorizationOptimizationConfig(OptimizationConfig):
-    method: Literal["SVD", "CP", "Tucker"]
+    method: Literal["CP", "Tucker-HOSVD", "Tucker-HOOI"]
 
 
 class LowRankFactorizationOptimization(Optimization):
