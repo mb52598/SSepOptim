@@ -8,6 +8,7 @@ from ssepoptim.metrics import (
     scale_invariant_signal_to_distortion_ratio,
     scale_invariant_signal_to_noise_ratio,
     signal_to_noise_ratio,
+    speechbrain_scale_invariant_signal_to_noise_ratio,
 )
 
 Loss = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
@@ -23,6 +24,12 @@ def scale_invariant_signal_to_noise_ratio_loss(
     prediction: torch.Tensor, target: torch.Tensor
 ) -> torch.Tensor:
     return -scale_invariant_signal_to_noise_ratio(prediction, target)
+
+
+def speechbrain_scale_invariant_signal_to_noise_ratio_loss(
+    prediction: torch.Tensor, target: torch.Tensor
+) -> torch.Tensor:
+    return -speechbrain_scale_invariant_signal_to_noise_ratio(prediction, target)
 
 
 def scale_invariant_signal_to_distortion_ratio_loss(
@@ -58,8 +65,8 @@ class PermutationInvariantLoss(nn.Module):
         channels = prediction.shape[1]
         for pred, tgt in zip(prediction, target):
             # Dim: [channel, time]
-            pred = pred.unsqueeze(0).expand(channels, -1, -1)
-            tgt = tgt.unsqueeze(1).expand(-1, channels, -1)
+            pred = pred.unsqueeze(1).expand(-1, channels, -1)
+            tgt = tgt.unsqueeze(0).expand(channels, -1, -1)
             # Dim: [channel, channel, time]
             loss_mat = self._loss(pred, tgt)
             # Dim: [channel, channel, time?]

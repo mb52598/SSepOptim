@@ -37,6 +37,7 @@ class CheckpointerKeys:
 
 class ReducedTrainingConfig(BaseConfig):
     epochs: int
+    finetune_epochs: int
     batch_size: int
     lr: float
     shuffle: bool
