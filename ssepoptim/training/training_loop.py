@@ -3,7 +3,6 @@ import random
 from typing import Optional, cast
 
 import torch
-import torch.distributed as dist
 import torch.nn as nn
 import torch.optim as optim
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -40,6 +39,7 @@ from ssepoptim.training.base import (
     valid_loop,
 )
 from ssepoptim.utils.context_timer import CtxTimer
+from ssepoptim.utils.distributed import get_global_rank
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +156,7 @@ def _train(
     # If we are distributed wrap the model in DDP
     rank = None
     if train_config["distributed_training"]:
-        rank = dist.get_rank()
+        rank = get_global_rank()
         model = DDP(model, device_ids=[device.index])
     # Data loop
     timer = CtxTimer()
@@ -200,6 +200,73 @@ def _train(
     logger.info(
         "Training|Epochs: %d|Time: %f|Max cuda memory: %d",
         train_config["epochs"],
+        timer.total,
+        torch.cuda.max_memory_allocated(device),
+    )
+    torch.cuda.reset_peak_memory_stats(device)
+    # Return model(unwrapped if distributed)
+    if train_config["distributed_training"]:
+        return model.module
+    else:
+        return model
+
+
+def _fine_tune(
+    model: nn.Module,
+    dataset: SpeechSeparationDataset,
+    optimizations: list[Optimization],
+    checkpointer: Checkpointer,
+    checkpoint_saver: CheckpointSaver,
+    loss: losses.Loss,
+    device: torch.device,
+    train_config: ReducedTrainingConfig,
+) -> nn.Module:
+    # Setup variables
+    train_dataloader = _get_dataloader(dataset.get_train(), device, train_config)
+    optimizer = get_optimizer(model, train_config["lr"])
+    scheduler = get_scheduler(optimizer)
+    # Apply optimizations and begin data loop
+    model = Optimizations.apply(model, optimizations, stage="train")
+    # Transfer the model to the device
+    model = model.to(device)
+    # If we are distributed wrap the model in DDP
+    rank = None
+    if train_config["distributed_training"]:
+        rank = get_global_rank()
+        model = DDP(model, device_ids=[device.index])
+    # Data loop
+    timer = CtxTimer()
+    for epoch in range(1, train_config["finetune_epochs"] + 1):
+        logger.info("Fine-Tune|Epoch %d", epoch)
+        #
+        if train_config["distributed_training"]:
+            cast(DistributedSampler[DatasetData], train_dataloader.sampler).set_epoch(
+                epoch
+            )
+        #
+        train_avg_loss, train_time = train_loop(
+            train_dataloader, model, loss, optimizer, device
+        )
+        logger.info(
+            "Fine-Tune|Epoch %d|Time: %f|Loss: %f", epoch, train_time, train_avg_loss
+        )
+        #
+        scheduler.step(train_avg_loss)
+    # Save model checkpoint
+    if not train_config["distributed_training"] or rank == 0:
+        checkpoint_saver.save_checkpoint(
+            checkpointer,
+            train_config["epochs"] + train_config["finetune_epochs"],
+            0,
+            0,
+            model,
+            optimizer,
+            scheduler,
+        )
+    # Log total time
+    logger.info(
+        "Fine-Tune|Epochs: %d|Time: %f|Max cuda memory: %d",
+        train_config["finetune_epochs"],
         timer.total,
         torch.cuda.max_memory_allocated(device),
     )
@@ -320,6 +387,17 @@ def train_test(
             device,
             train_config,
         )
+        if Optimizations.requireFinetune(optimizations):
+            model = _fine_tune(
+                model,
+                dataset,
+                optimizations,
+                checkpointer,
+                checkpoint_saver,
+                loss,
+                device,
+                train_config,
+            )
     # Test
     _test(
         model,

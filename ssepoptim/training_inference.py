@@ -16,8 +16,46 @@ from ssepoptim.training.base import (
     search_and_load_checkpoint,
 )
 from ssepoptim.training.training_loop import train_test as train_test_loop
+from ssepoptim.utils.distributed import get_local_rank
 
 logger = logging.getLogger(__name__)
+
+
+def _get_default_values(train_config: TrainingConfig):
+    # Use id from config or create our own
+    if train_config["id"] is None:
+        identifier = str(uuid4())
+    else:
+        identifier = train_config["id"]
+    # Use seed from config or create our own
+    if train_config["seed"] is not None:
+        seed = train_config["seed"]
+    else:
+        seed = random.randrange(sys.maxsize)
+    return identifier, seed
+
+
+def _attemp_search_and_load_checkpoint(
+    checkpointer: Checkpointer,
+    model_name: str,
+    model_config: ModelConfig,
+    dataset_config: SpeechSeparationDatasetConfig,
+    raise_on_failure: bool,
+):
+    checkpoint = search_and_load_checkpoint(
+        checkpointer,
+        model_name,
+        model_config,
+        dataset_config,
+    )
+    if checkpoint is None:
+        if raise_on_failure:
+            raise RuntimeError("Unable to find any checkpoints")
+        return None
+    checkpoint_name, visible_metadata, hidden_metadata, _ = checkpoint
+    identifier = visible_metadata[CheckpointerKeys.ID]
+    seed = hidden_metadata[CheckpointerKeys.SEED]
+    return checkpoint_name, identifier, seed
 
 
 def train_test(
@@ -31,36 +69,25 @@ def train_test(
 ):
     # Load last checkpoint, setup id and seed
     checkpointer = Checkpointer(train_config["checkpoints_path"])
-    checkpoint_name = None
+    checkpoint_data = None
     if train_config["load_last_checkpoint"] or train_config["test_only"]:
-        checkpoint = search_and_load_checkpoint(
+        checkpoint_data = _attemp_search_and_load_checkpoint(
             checkpointer,
             model_name,
             model_config,
             dataset_config,
+            bool(train_config["test_only"]),
         )
-        if checkpoint is None:
-            raise RuntimeError("Unable to find any checkpoints")
-        checkpoint_name, visible_metadata, hidden_metadata, _ = checkpoint
-        identifier = visible_metadata[CheckpointerKeys.ID]
-        seed = hidden_metadata[CheckpointerKeys.SEED]
+    if checkpoint_data is not None:
+        checkpoint_name, identifier, seed = checkpoint_data
         logger.info("Using checkpoint: %s", checkpoint_name)
     else:
-        # Use id from config or create our own
-        if train_config["id"] is None:
-            identifier = str(uuid4())
-        else:
-            identifier = train_config["id"]
-        # Use seed from config or create our own
-        if train_config["seed"] is not None:
-            seed = train_config["seed"]
-        else:
-            seed = random.randrange(sys.maxsize)
+        checkpoint_name = None
+        identifier, seed = _get_default_values(train_config)
     # Start training
     if train_config["distributed_training"]:
         dist.init_process_group(backend="nccl")
-        rank = dist.get_rank()
-        device_id = rank % torch.cuda.device_count()
+        device_id = get_local_rank()
         torch.cuda.set_device(device_id)
         device = torch.device("cuda", device_id)
         torch.set_default_device(device)

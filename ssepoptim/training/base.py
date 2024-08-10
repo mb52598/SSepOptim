@@ -126,7 +126,10 @@ def test_loop(
             separation = model(mix)
             separation_loss = torch.mean(loss(separation, target), dim=0)
             metric_values = torch.stack(
-                [torch.mean(metric(separation, target)) for metric in metrics]
+                [
+                    torch.mean(metric(separation, target) - metric(mix, target))
+                    for metric in metrics
+                ]
             )
             test_loss_sum += separation_loss
             test_metrics_sum += metric_values
