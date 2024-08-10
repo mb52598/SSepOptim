@@ -38,7 +38,7 @@ from ssepoptim.training.base import (
     train_loop,
     valid_loop,
 )
-from ssepoptim.utils.context_timer import CtxTimer
+from ssepoptim.training.training_observer import TrainingObservers
 from ssepoptim.utils.distributed import get_global_rank
 
 logger = logging.getLogger(__name__)
@@ -58,6 +58,7 @@ def _get_dataloader(
             num_workers=train_config["num_workers"],
             collate_fn=collate_fn,
             pin_memory=True,
+            generator=torch.Generator(device=device),
         )
     else:
         pin_memory = device.type != "cpu"
@@ -126,6 +127,7 @@ def _train(
     checkpointer: Checkpointer,
     checkpoint_name: Optional[str],
     checkpoint_saver: CheckpointSaver,
+    observers: TrainingObservers,
     loss: losses.Loss,
     device: torch.device,
     train_config: ReducedTrainingConfig,
@@ -158,9 +160,12 @@ def _train(
     if train_config["distributed_training"]:
         rank = get_global_rank()
         model = DDP(model, device_ids=[device.index])
+    #
+    observers.on_training_start(locals())
     # Data loop
-    timer = CtxTimer()
     for epoch in range(start_epoch, train_config["epochs"] + 1):
+        observers.on_training_epoch_start(locals())
+        #
         logger.info("Epoch %d", epoch)
         #
         if train_config["distributed_training"]:
@@ -196,14 +201,10 @@ def _train(
                 )
         #
         scheduler.step(train_avg_loss)
-    # Log total time
-    logger.info(
-        "Training|Epochs: %d|Time: %f|Max cuda memory: %d",
-        train_config["epochs"],
-        timer.total,
-        torch.cuda.max_memory_allocated(device),
-    )
-    torch.cuda.reset_peak_memory_stats(device)
+        #
+        observers.on_training_epoch_end(locals())
+    #
+    observers.on_training_end(locals())
     # Return model(unwrapped if distributed)
     if train_config["distributed_training"]:
         return model.module
@@ -217,6 +218,7 @@ def _fine_tune(
     optimizations: list[Optimization],
     checkpointer: Checkpointer,
     checkpoint_saver: CheckpointSaver,
+    observers: TrainingObservers,
     loss: losses.Loss,
     device: torch.device,
     train_config: ReducedTrainingConfig,
@@ -234,9 +236,12 @@ def _fine_tune(
     if train_config["distributed_training"]:
         rank = get_global_rank()
         model = DDP(model, device_ids=[device.index])
+    #
+    observers.on_fine_tuning_start(locals())
     # Data loop
-    timer = CtxTimer()
     for epoch in range(1, train_config["finetune_epochs"] + 1):
+        observers.on_fine_tuning_epoch_start(locals())
+        #
         logger.info("Fine-Tune|Epoch %d", epoch)
         #
         if train_config["distributed_training"]:
@@ -252,6 +257,8 @@ def _fine_tune(
         )
         #
         scheduler.step(train_avg_loss)
+        #
+        observers.on_fine_tuning_epoch_end(locals())
     # Save model checkpoint
     if not train_config["distributed_training"] or rank == 0:
         checkpoint_saver.save_checkpoint(
@@ -263,14 +270,8 @@ def _fine_tune(
             optimizer,
             scheduler,
         )
-    # Log total time
-    logger.info(
-        "Fine-Tune|Epochs: %d|Time: %f|Max cuda memory: %d",
-        train_config["finetune_epochs"],
-        timer.total,
-        torch.cuda.max_memory_allocated(device),
-    )
-    torch.cuda.reset_peak_memory_stats(device)
+    #
+    observers.on_fine_tuning_end(locals())
     # Return model(unwrapped if distributed)
     if train_config["distributed_training"]:
         return model.module
@@ -284,6 +285,7 @@ def _test(
     optimizations: list[Optimization],
     checkpointer: Checkpointer,
     checkpoint_name: Optional[str],
+    observers: TrainingObservers,
     loss: losses.Loss,
     device: torch.device,
     train_config: ReducedTrainingConfig,
@@ -307,6 +309,8 @@ def _test(
     # If we are distributed wrap the model in DDP
     if train_config["distributed_training"]:
         model = DDP(model, device_ids=[device.index])
+    #
+    observers.on_testing_start(locals())
     # Data loop
     test_avg_loss, test_avg_metrics, test_time = test_loop(
         test_dataloader,
@@ -318,13 +322,13 @@ def _test(
     # Log data
     metrics_str = ", ".join(["%f"] * len(test_avg_metrics))
     logger.info(
-        f"Test|Time: %f|Loss: %f|Metrics: {metrics_str}|Max cuda memory: %d",
+        f"Test|Time: %f|Loss: %f|Metrics: {metrics_str}",
         test_time,
         test_avg_loss,
         *test_avg_metrics,
-        torch.cuda.max_memory_allocated(device),
     )
-    torch.cuda.reset_peak_memory_stats(device)
+    #
+    observers.on_testing_end(locals())
 
 
 def train_test(
@@ -370,10 +374,13 @@ def train_test(
         train_config["loss"],
         train_config["use_greedy_permutation_invariant_loss"],
     )
+    observers = TrainingObservers(train_config["observers"])
     # Log variables
     logger.info("Using id: %s", identifier)
     logger.info("Using seed: %d", seed)
     logger.info("Using loss: %s", train_config["loss"].__name__)
+    #
+    observers.on_program_start(locals())
     # Train (if enabled)
     if not train_config["test_only"]:
         model = _train(
@@ -383,6 +390,7 @@ def train_test(
             checkpointer,
             checkpoint_name,
             checkpoint_saver,
+            observers,
             loss,
             device,
             train_config,
@@ -394,6 +402,7 @@ def train_test(
                 optimizations,
                 checkpointer,
                 checkpoint_saver,
+                observers,
                 loss,
                 device,
                 train_config,
@@ -405,7 +414,10 @@ def train_test(
         optimizations,
         checkpointer,
         checkpoint_name,
+        observers,
         loss,
         device,
         train_config,
     )
+    #
+    observers.on_program_end(locals())

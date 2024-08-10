@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Type
 
 import torch
 import torch.nn as nn
@@ -12,6 +12,7 @@ from ssepoptim.base.configuration import BaseConfig
 from ssepoptim.dataset import SpeechSeparationDatasetConfig
 from ssepoptim.model import ModelConfig
 from ssepoptim.optimization import OptimizationConfig
+from ssepoptim.training.training_observer import TrainingObserver
 from ssepoptim.utils.context_timer import CtxTimer
 from ssepoptim.utils.conversion import dict_any_to_str
 
@@ -50,6 +51,7 @@ class ReducedTrainingConfig(BaseConfig):
     test_only: Optional[bool]
     test_metrics: list[metrics.Metric]
     checkpoints_path: str
+    observers: list[Type[TrainingObserver]]
     distributed_training: Optional[bool]
 
 

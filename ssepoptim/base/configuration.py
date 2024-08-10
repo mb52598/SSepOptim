@@ -1,4 +1,5 @@
 import importlib
+import inspect
 from collections.abc import Callable
 from configparser import ConfigParser, ExtendedInterpolation, SectionProxy
 from types import NoneType
@@ -100,7 +101,7 @@ class ConfigLoader:
         elif origin is type:
             value = cls._check_key(key, value)
             imported_class = cls._import_object(value)
-            if type(imported_class) is not type:
+            if not inspect.isclass(imported_class):
                 raise RuntimeError(
                     'Imported object "{}" is not a class'.format(
                         imported_class.__name__
