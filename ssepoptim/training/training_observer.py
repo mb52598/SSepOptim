@@ -1,11 +1,10 @@
-from abc import ABCMeta, abstractmethod
-from typing import Any, Iterable, Type
+from abc import ABCMeta
+from typing import Any, cast, Iterable
+
+from ssepoptim.base.configuration import Constructable
 
 
 class TrainingObserver(metaclass=ABCMeta):
-    @abstractmethod
-    def __init__(self): ...
-
     def on_program_start(self, locals: dict[str, Any]):
         pass
 
@@ -44,8 +43,8 @@ class TrainingObserver(metaclass=ABCMeta):
 
 
 class TrainingObservers(metaclass=ABCMeta):
-    def __init__(self, observers: Iterable[Type[TrainingObserver]]):
-        self._observers = [observer() for observer in observers]
+    def __init__(self, observers: Iterable[Constructable[TrainingObserver]]):
+        self._observers = cast(Iterable[TrainingObserver], observers)
 
     def on_program_start(self, locals: dict[str, Any]):
         for observer in self._observers:

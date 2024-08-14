@@ -1,6 +1,6 @@
 import random
 import time
-from typing import Literal, Optional, Type
+from typing import Literal, Optional
 
 import torch
 import torch.nn as nn
@@ -9,12 +9,13 @@ from torch.utils.data import DataLoader
 
 import ssepoptim.loss as loss
 from ssepoptim.base.checkpointing import Checkpointer
-from ssepoptim.base.configuration import BaseConfig
+from ssepoptim.base.configuration import BaseConfig, Constructable
 from ssepoptim.dataset import SpeechSeparationDatasetConfig, SpeechSeparationDatasetType
 from ssepoptim.metrics.base import Metric
 from ssepoptim.model import ModelConfig
 from ssepoptim.optimization import OptimizationConfig
 from ssepoptim.training.training_observer import TrainingObserver
+from ssepoptim.training.early_stop import EarlyStop
 from ssepoptim.utils.context_timer import CtxTimer
 from ssepoptim.utils.conversion import dict_any_to_str
 from ssepoptim.utils.torch_utils import synchronize_device
@@ -56,7 +57,8 @@ class ReducedTrainingConfig(BaseConfig):
     test_metrics: list[Metric]
     calculate_test_metrics_improvement: bool
     checkpoints_path: str
-    observers: list[Type[TrainingObserver]]
+    observers: list[Constructable[TrainingObserver]]
+    early_stop: Optional[Constructable[EarlyStop]]
     distributed_training: bool
 
 

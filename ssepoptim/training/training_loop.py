@@ -37,6 +37,7 @@ from ssepoptim.training.base import (
     train_loop,
     valid_loop,
 )
+from ssepoptim.training.early_stop import DummyEarlyStop, EarlyStop
 from ssepoptim.training.training_observer import TrainingObservers
 from ssepoptim.utils.distributed import get_global_rank
 
@@ -149,6 +150,7 @@ def _train(
     valid_dataloader = _get_dataloader(dataset.get_valid(), device, seed, train_config)
     optimizer = model.get_optimizer(module)
     scheduler = model.get_scheduler(optimizer)
+    early_stop = cast(EarlyStop | None, train_config["early_stop"]) or DummyEarlyStop()
     # Load checkpoint if configured
     start_epoch = 1
     if train_config["load_last_checkpoint"]:
@@ -218,6 +220,10 @@ def _train(
         _scheduler_step(scheduler, train_avg_loss)
         #
         observers.on_training_epoch_end(locals())
+        #
+        if early_stop.should_early_stop(locals()):
+            logger.info("Early stopping on epoch %d", epoch)
+            break
     # Unwrap module if distributed
     if type(module) is DDP:
         module = cast(nn.Module, module.module)

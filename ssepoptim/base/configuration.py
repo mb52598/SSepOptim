@@ -1,10 +1,12 @@
 import importlib
 import inspect
+import re
 from collections.abc import Callable
 from configparser import ConfigParser, ExtendedInterpolation, SectionProxy
 from types import NoneType
 from typing import (
     Any,
+    Generic,
     Literal,
     Protocol,
     Type,
@@ -29,6 +31,10 @@ class AtleastStrArgumentConstructorClass(Protocol):
 
 T = TypeVar("T")
 TC = TypeVar("TC", bound=BaseConfig)
+
+
+class Constructable(Generic[T]):
+    pass
 
 
 class ConfigLoader:
@@ -115,6 +121,52 @@ class ConfigLoader:
                     )
                 )
             return imported_class
+        elif origin is Constructable:
+            value = cls._check_key(key, value)
+            m = re.match(r"^(?P<classname>.*?)\((?P<arguments>.*?)\)$", value)
+            if m is None:
+                raise RuntimeError(
+                    f'Invalid Constructible object pattern for key "{key}"'
+                )
+            d = m.groupdict()
+            defined_class = get_args(keytype)[0]
+            value_class = cls._parse_origin(
+                model, key, d["classname"], type[defined_class]
+            )
+            parameter_values_string = d["arguments"].split("|")
+            if len(parameter_values_string) == 1 and not parameter_values_string[0]:
+                parameter_values_string = []
+            signature = inspect.signature(value_class.__init__)
+            parameter_annotataions = [
+                p.annotation for p in signature.parameters.values() if p.name != "self"
+            ]
+            if len(parameter_values_string) != len(parameter_annotataions):
+                raise RuntimeError(
+                    'Number of provided({}) and number of required({}) parameters mismatch for key "{}"'.format(
+                        len(parameter_values_string), len(parameter_annotataions), key
+                    )
+                )
+            parameters = [
+                cls._parse_origin(model, key, parameter_string, parameter_annotation)
+                for parameter_string, parameter_annotation in zip(
+                    parameter_values_string, parameter_annotataions
+                )
+            ]
+            return value_class(*parameters)
+        elif origin is tuple:
+            value = cls._check_key(key, value)
+            values_string = value.split(",")
+            defined_types = get_args(keytype)
+            if len(values_string) != len(defined_types):
+                raise RuntimeError(
+                    'Number of provided({}) and number of required({}) arguments mismatch for key "{}"'.format(
+                        len(values_string), len(defined_types), key
+                    )
+                )
+            return tuple(
+                cls._parse_origin(model, key, value_string, defined_type)
+                for value_string, defined_type in zip(values_string, defined_types)
+            )
         elif origin is list:
             defined_type = get_args(keytype)[0]
             result_value: list[Type[Any]] = []
