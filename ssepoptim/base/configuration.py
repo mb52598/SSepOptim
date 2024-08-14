@@ -48,6 +48,12 @@ class ConfigLoader:
             self._parser.read_file(file)
 
     @staticmethod
+    def _split_respecting_brackets(sep: str, string: str, maxsplit: int = 0):
+        return re.split(
+            sep + r"(?![^{]*})(?![^\[]*\])(?![^\(]*\))", string, maxsplit=maxsplit
+        )
+
+    @staticmethod
     def _import_object(path: str):
         module_path, object_name = path.rsplit(".", maxsplit=1)
         module = importlib.import_module(module_path)
@@ -133,7 +139,9 @@ class ConfigLoader:
             value_class = cls._parse_origin(
                 model, key, d["classname"], type[defined_class]
             )
-            parameter_values_string = d["arguments"].split("|")
+            parameter_values_string = cls._split_respecting_brackets(
+                ",", d["arguments"]
+            )
             if len(parameter_values_string) == 1 and not parameter_values_string[0]:
                 parameter_values_string = []
             signature = inspect.signature(value_class.__init__)
@@ -155,7 +163,8 @@ class ConfigLoader:
             return value_class(*parameters)
         elif origin is tuple:
             value = cls._check_key(key, value)
-            values_string = value.split(",")
+            value = value.lstrip("[").rstrip("]")
+            values_string = cls._split_respecting_brackets(",", value)
             defined_types = get_args(keytype)
             if len(values_string) != len(defined_types):
                 raise RuntimeError(
@@ -171,7 +180,8 @@ class ConfigLoader:
             defined_type = get_args(keytype)[0]
             result_value: list[Type[Any]] = []
             if value is not None:
-                for element in value.split(","):
+                value = value.lstrip("[").rstrip("]")
+                for element in cls._split_respecting_brackets(",", value):
                     result_value.append(
                         cls._parse_origin(model, key, element, defined_type)
                     )
