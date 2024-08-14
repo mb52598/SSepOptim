@@ -54,7 +54,7 @@ def main(config_path: str):
     logging.basicConfig(
         filename=log_filename,
         filemode="x",
-        format="[{levelname:^8s}] <{process}:{thread}> {asctime} {name:32s} {message}",
+        format="[{levelname:^8s}] <{process}:{thread}> {asctime} {name:64s} {message}",
         datefmt="%Y-%m-%d %H:%M:%S",
         style="{",
         level=getattr(logging, config["log_level"]),
@@ -63,6 +63,7 @@ def main(config_path: str):
     if config["tag"] is not None:
         logger.info(config["tag"])
     # Log configuration
+    logger.info("Using configuration: %s", os.path.basename(config_path))
     logger.info("Using model: %s", config["model"])
     logger.info("Using dataset: %s", config["dataset"])
     logger.info(

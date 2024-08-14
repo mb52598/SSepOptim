@@ -7,6 +7,7 @@ from ssepoptim.dataset import (
     SpeechSeparationDataset,
     SpeechSeparationDatasetConfig,
     SpeechSeparationDatasetFactory,
+    SpeechSeparationDatasetType,
 )
 from ssepoptim.datasets.utils.audio_files_dataset import SplitAudioFilesDataset
 from ssepoptim.datasets.utils.split_data import split_data
@@ -20,8 +21,6 @@ class LibriCSSDatasetConfig(SpeechSeparationDatasetConfig):
 
 
 class LibriCSSDataset(SpeechSeparationDataset):
-    _DATASET_TYPE = SpeechSeparationDataset._DATASET_TYPE
-
     def __init__(self, config: LibriCSSDatasetConfig):
         self._config = config
 
@@ -41,7 +40,7 @@ class LibriCSSDataset(SpeechSeparationDataset):
                 )
         return audio_files
 
-    def _get(self, subfolder: Literal["tr", "cv", "tt"]) -> _DATASET_TYPE:
+    def _get(self, subfolder: Literal["tr", "cv", "tt"]) -> SpeechSeparationDatasetType:
         audio_files = self._get_files()
         tr, cv, tt = split_data(audio_files, [0.7, 0.2, 0.1])
         match subfolder:
@@ -57,13 +56,13 @@ class LibriCSSDataset(SpeechSeparationDataset):
             self._config["sample_rate"],
         )
 
-    def get_train(self) -> _DATASET_TYPE:
+    def get_train(self) -> SpeechSeparationDatasetType:
         return self._get("tr")
 
-    def get_valid(self) -> _DATASET_TYPE:
+    def get_valid(self) -> SpeechSeparationDatasetType:
         return self._get("cv")
 
-    def get_test(self) -> _DATASET_TYPE:
+    def get_test(self) -> SpeechSeparationDatasetType:
         return self._get("tt")
 
 

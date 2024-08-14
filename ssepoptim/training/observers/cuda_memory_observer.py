@@ -1,5 +1,5 @@
 import logging
-from typing import Any
+from typing import Any, cast
 
 import torch
 
@@ -12,12 +12,19 @@ class CudaMemoryObserver(TrainingObserver):
     def __init__(self):
         pass
 
+    def _get_device(self, locals: dict[str, Any]):
+        return cast(torch.device, locals["device"])
+
     def _reset_peak_memory(self, locals: dict[str, Any]):
-        torch.cuda.reset_peak_memory_stats(locals["device"])
+        device = self._get_device(locals)
+        if device.type.startswith("cuda"):
+            torch.cuda.reset_peak_memory_stats(device)
 
     def _log_peak_memory(self, prefix: str, locals: dict[str, Any]):
-        peak_memory = torch.cuda.max_memory_allocated(locals["device"])
-        logger.info("%s|CUDA max memory allocated: %d", prefix, peak_memory)
+        device = self._get_device(locals)
+        if device.type.startswith("cuda"):
+            peak_memory = torch.cuda.max_memory_allocated(device)
+            logger.info("%s|CUDA max memory allocated: %d bytes", prefix, peak_memory)
 
     def on_training_start(self, locals: dict[str, Any]):
         self._reset_peak_memory(locals)

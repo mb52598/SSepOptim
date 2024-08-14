@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.optim as optim
 
 from ssepoptim.libs.speechbrain import (
     Decoder,
@@ -7,7 +8,7 @@ from ssepoptim.libs.speechbrain import (
     Encoder,
     SBTransformerBlock,
 )
-from ssepoptim.model import ModelConfig, ModelFactory
+from ssepoptim.model import Model, ModelConfig, ModelFactory
 from ssepoptim.utils.type_checker import check_config_entries
 
 
@@ -62,7 +63,7 @@ def get_masknet(config: SepformerConfig):
     )
 
 
-class Sepformer(nn.Module):
+class SepformerModule(nn.Module):
     def __init__(self, config: SepformerConfig):
         super().__init__()
 
@@ -75,9 +76,7 @@ class Sepformer(nn.Module):
         mix = mix.squeeze(-2)
         encoded_mix = self._encoder(mix)
         est_mask = self._masknet(encoded_mix)
-        encoded_mix_stack = torch.stack(
-            [encoded_mix] * self._config["num_spks"]
-        )
+        encoded_mix_stack = torch.stack([encoded_mix] * self._config["num_spks"])
         encoded_separated_stack = encoded_mix_stack * est_mask
         return torch.cat(
             [
@@ -85,6 +84,22 @@ class Sepformer(nn.Module):
                 for i in range(self._config["num_spks"])
             ]
         )
+
+
+class Sepformer(Model):
+    def __init__(self, config: SepformerConfig):
+        self._config = config
+
+    def get_module(self) -> nn.Module:
+        return SepformerModule(self._config)
+
+    def get_optimizer(self, model: nn.Module) -> optim.Optimizer:
+        return optim.Adam(model.parameters(), lr=0.00015, weight_decay=0)
+
+    def get_scheduler(
+        self, optimizer: optim.Optimizer
+    ) -> optim.lr_scheduler.LRScheduler:
+        return optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=2)
 
 
 class SepformerFactory(ModelFactory):

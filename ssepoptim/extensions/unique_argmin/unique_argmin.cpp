@@ -66,23 +66,25 @@ std::vector<torch::Tensor> unique_argmin_forward_cpu(torch::Tensor input)
     }
 
     return {
-        torch::tensor(lowest_sum, torch::dtype(input.dtype()).requires_grad(false)),
+        torch::tensor(lowest_sum / channels, torch::dtype(input.dtype()).requires_grad(false)),
         best_row_indexes,
         best_column_indexes
     };
 }
 
+std::vector<torch::Tensor> unique_argmin_forward_cuda(torch::Tensor input);
+
 /**
  * @brief Calculate argmin of tensor where all the indexes are unique
  * 
- * @param input Input tensor of shape [channel, channel]
- * @return torch::Tensor Resulting tensor of shape [1]
+ * @param input Input tensor of shape [batch, dim1, dim2]
+ * @return torch::Tensor Resulting tensor of shape [batch]
  */
 std::vector<torch::Tensor> unique_argmin_forward(torch::Tensor input)
 {
     if (input.device().is_cuda())
     {
-
+        // return unique_argmin_forward_cuda(input);
     }
     if (input.dtype() == torch::kFloat16)
     {

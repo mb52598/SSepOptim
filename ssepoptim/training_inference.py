@@ -31,6 +31,10 @@ def _get_default_values(train_config: TrainingConfig):
     if train_config["seed"] is not None:
         seed = train_config["seed"]
     else:
+        # Check for distributed
+        if train_config["distributed_training"]:
+            raise RuntimeError("Seed needs to be set for distributed training")
+        # Generate seed
         seed = random.randrange(sys.maxsize)
     return identifier, seed
 

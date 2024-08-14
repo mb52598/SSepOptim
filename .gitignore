@@ -165,3 +165,4 @@ checkpoints/
 logs/
 datasets_dir/
 compile_commands.json
+cluster_settings

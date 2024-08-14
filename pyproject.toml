@@ -8,6 +8,7 @@ requires-python = ">=3.11"
 dependencies = [
     "torch>=2.3.1",
     "torchaudio>=2.3.1",
+    "fast_bss_eval>=0.1.4",
     "pandas>=2.2.2",
 ]
 classifiers = [
@@ -36,6 +37,6 @@ install = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["ssepoptim"]
-exclude = []
+include = ["ssepoptim*"]
+exclude = ["ssepoptim.tests*"]
 namespaces = false

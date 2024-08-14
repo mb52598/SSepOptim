@@ -9,7 +9,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
-import ssepoptim.losses as losses
+import ssepoptim.loss as loss
 from ssepoptim.base.checkpointing import Checkpointer
 from ssepoptim.dataset import (
     LenDataset,
@@ -17,7 +17,8 @@ from ssepoptim.dataset import (
     SpeechSeparationDatasetConfig,
     SpeechSeparationDatasetFactory,
 )
-from ssepoptim.model import ModelConfig, ModelFactory
+from ssepoptim.metrics.pit import PermutationInvariantMetric
+from ssepoptim.model import Model, ModelConfig, ModelFactory
 from ssepoptim.optimization import (
     Optimization,
     OptimizationConfig,
@@ -31,8 +32,6 @@ from ssepoptim.training.base import (
     ReducedTrainingConfig,
     TrainingConfig,
     collate_fn,
-    get_optimizer,
-    get_scheduler,
     save_checkpoint,
     test_loop,
     train_loop,
@@ -47,6 +46,7 @@ logger = logging.getLogger(__name__)
 def _get_dataloader(
     dataset: LenDataset[DatasetData],
     device: torch.device,
+    seed: int,
     train_config: ReducedTrainingConfig,
 ) -> DatasetDataLoader:
     if train_config["distributed_training"]:
@@ -54,7 +54,7 @@ def _get_dataloader(
             dataset,
             batch_size=train_config["batch_size"],
             shuffle=False,
-            sampler=DistributedSampler(dataset),
+            sampler=DistributedSampler(dataset, seed=seed),
             num_workers=train_config["num_workers"],
             collate_fn=collate_fn,
             pin_memory=True,
@@ -71,6 +71,13 @@ def _get_dataloader(
             pin_memory=pin_memory,
             generator=torch.Generator(device=device),
         )
+
+
+def _scheduler_step(scheduler: optim.lr_scheduler.LRScheduler, train_avg_loss: float):
+    if type(scheduler) is optim.lr_scheduler.ReduceLROnPlateau:
+        scheduler.step(train_avg_loss)
+    else:
+        scheduler.step()
 
 
 class CheckpointSaver:
@@ -98,10 +105,13 @@ class CheckpointSaver:
         epoch: int,
         train_avg_loss: float,
         valid_avg_loss: float,
-        model: nn.Module,
+        module: nn.Module,
         optimizer: optim.Optimizer,
         scheduler: optim.lr_scheduler.LRScheduler,
     ):
+        # Unwrap module if DDP
+        if type(module) is DDP:
+            module = cast(nn.Module, module.module)
         save_checkpoint(
             checkpointer,
             self._identifier,
@@ -110,7 +120,7 @@ class CheckpointSaver:
             epoch,
             train_avg_loss,
             valid_avg_loss,
-            model,
+            module,
             optimizer,
             scheduler,
             self._model_config,
@@ -121,29 +131,31 @@ class CheckpointSaver:
 
 
 def _train(
-    model: nn.Module,
+    module: nn.Module,
+    model: Model,
     dataset: SpeechSeparationDataset,
     optimizations: list[Optimization],
     checkpointer: Checkpointer,
     checkpoint_name: Optional[str],
     checkpoint_saver: CheckpointSaver,
     observers: TrainingObservers,
-    loss: losses.Loss,
+    loss: loss.Loss,
     device: torch.device,
+    seed: int,
     train_config: ReducedTrainingConfig,
 ) -> nn.Module:
     # Setup variables
-    train_dataloader = _get_dataloader(dataset.get_train(), device, train_config)
-    valid_dataloader = _get_dataloader(dataset.get_valid(), device, train_config)
-    optimizer = get_optimizer(model, train_config["lr"])
-    scheduler = get_scheduler(optimizer)
+    train_dataloader = _get_dataloader(dataset.get_train(), device, seed, train_config)
+    valid_dataloader = _get_dataloader(dataset.get_valid(), device, seed, train_config)
+    optimizer = model.get_optimizer(module)
+    scheduler = model.get_scheduler(optimizer)
     # Load checkpoint if configured
     start_epoch = 1
     if train_config["load_last_checkpoint"]:
         if checkpoint_name is not None:
             visible_metadata, _, data = checkpointer.load_checkpoint(checkpoint_name)
             start_epoch = int(visible_metadata[CheckpointerKeys.EPOCH]) + 1
-            model.load_state_dict(data[CheckpointerKeys.MODEL_STATE_DICT])
+            module.load_state_dict(data[CheckpointerKeys.MODULE_STATE_DICT])
             optimizer.load_state_dict(data[CheckpointerKeys.OPTIMIZER_STATE_DICT])
             scheduler.load_state_dict(data[CheckpointerKeys.SCHEDULER_STATE_DICT])
             logger.info("Using checkpoint for training: %s", checkpoint_name)
@@ -151,38 +163,41 @@ def _train(
             logger.warn(
                 "Unable to find any checkpoints for training, starting from the beginning"
             )
-    # Apply optimizations and begin data loop
-    model = Optimizations.apply(model, optimizations, stage="train")
-    # Transfer the model to the device
-    model = model.to(device)
-    # If we are distributed wrap the model in DDP
+    # Apply optimizations
+    module = Optimizations.apply(module, optimizations, "TRAIN_START", locals())
+    # Transfer the module to the device
+    module = module.to(device)
+    # Activate observer
+    observers.on_training_start(locals())
+    # If we are distributed wrap the module in DDP
     rank = None
     if train_config["distributed_training"]:
         rank = get_global_rank()
-        model = DDP(model, device_ids=[device.index])
-    #
-    observers.on_training_start(locals())
+        module = DDP(module, device_ids=[device.index])
     # Data loop
     for epoch in range(start_epoch, train_config["epochs"] + 1):
         observers.on_training_epoch_start(locals())
         #
         logger.info("Epoch %d", epoch)
         #
-        if train_config["distributed_training"]:
-            cast(DistributedSampler[DatasetData], train_dataloader.sampler).set_epoch(
-                epoch
-            )
+        if type(train_dataloader.sampler) is DistributedSampler:
+            train_dataloader.sampler.set_epoch(epoch)
         #
         train_avg_loss, train_time = train_loop(
-            train_dataloader, model, loss, optimizer, device
+            train_dataloader,
+            module,
+            loss,
+            optimizer,
+            device,
+            train_config["clip_grad_norm"],
         )
-        logger.info("Train|Time: %f|Loss: %f", train_time, train_avg_loss)
+        logger.info("Train|Time: %f s|Loss: %f", train_time, train_avg_loss)
         #
-        valid_avg_loss, valid_time = valid_loop(valid_dataloader, model, loss, device)
-        logger.info("Valid|Time: %f|Loss: %f", valid_time, valid_avg_loss)
+        valid_avg_loss, valid_time = valid_loop(valid_dataloader, module, loss, device)
+        logger.info("Valid|Time: %f s|Loss: %f", valid_time, valid_avg_loss)
         #
         logger.info(
-            "Epoch %d|Time: %f|Loss: %f",
+            "Epoch %d|Time: %f s|Loss: %f",
             epoch,
             train_time + valid_time,
             train_avg_loss + valid_avg_loss,
@@ -195,140 +210,151 @@ def _train(
                     epoch,
                     train_avg_loss,
                     valid_avg_loss,
-                    model,
+                    module,
                     optimizer,
                     scheduler,
                 )
         #
-        scheduler.step(train_avg_loss)
+        _scheduler_step(scheduler, train_avg_loss)
         #
         observers.on_training_epoch_end(locals())
-    #
+    # Unwrap module if distributed
+    if type(module) is DDP:
+        module = cast(nn.Module, module.module)
+    # Apply optimizations
+    module = Optimizations.apply(module, optimizations, "TRAIN_END", locals())
+    # Activate observer
     observers.on_training_end(locals())
-    # Return model(unwrapped if distributed)
-    if train_config["distributed_training"]:
-        return model.module
-    else:
-        return model
+    # Return module
+    return module
 
 
 def _fine_tune(
-    model: nn.Module,
+    module: nn.Module,
+    model: Model,
     dataset: SpeechSeparationDataset,
     optimizations: list[Optimization],
     checkpointer: Checkpointer,
     checkpoint_saver: CheckpointSaver,
     observers: TrainingObservers,
-    loss: losses.Loss,
+    loss: loss.Loss,
     device: torch.device,
+    seed: int,
     train_config: ReducedTrainingConfig,
 ) -> nn.Module:
     # Setup variables
-    train_dataloader = _get_dataloader(dataset.get_train(), device, train_config)
-    optimizer = get_optimizer(model, train_config["lr"])
-    scheduler = get_scheduler(optimizer)
-    # Apply optimizations and begin data loop
-    model = Optimizations.apply(model, optimizations, stage="train")
-    # Transfer the model to the device
-    model = model.to(device)
-    # If we are distributed wrap the model in DDP
+    train_dataloader = _get_dataloader(dataset.get_train(), device, seed, train_config)
+    optimizer = model.get_optimizer(module)
+    scheduler = model.get_scheduler(optimizer)
+    # Apply optimizations
+    module = Optimizations.apply(module, optimizations, "FINETUNE_START", locals())
+    # Transfer the module to the device
+    module = module.to(device)
+    # Activate observer
+    observers.on_fine_tuning_start(locals())
+    # If we are distributed wrap the module in DDP
     rank = None
     if train_config["distributed_training"]:
         rank = get_global_rank()
-        model = DDP(model, device_ids=[device.index])
-    #
-    observers.on_fine_tuning_start(locals())
+        module = DDP(module, device_ids=[device.index])
     # Data loop
     for epoch in range(1, train_config["finetune_epochs"] + 1):
         observers.on_fine_tuning_epoch_start(locals())
         #
         logger.info("Fine-Tune|Epoch %d", epoch)
         #
-        if train_config["distributed_training"]:
-            cast(DistributedSampler[DatasetData], train_dataloader.sampler).set_epoch(
-                epoch
-            )
+        if type(train_dataloader.sampler) is DistributedSampler:
+            train_dataloader.sampler.set_epoch(epoch)
         #
         train_avg_loss, train_time = train_loop(
-            train_dataloader, model, loss, optimizer, device
+            train_dataloader,
+            module,
+            loss,
+            optimizer,
+            device,
+            train_config["clip_grad_norm"],
         )
         logger.info(
-            "Fine-Tune|Epoch %d|Time: %f|Loss: %f", epoch, train_time, train_avg_loss
+            "Fine-Tune|Epoch %d|Time: %f s|Loss: %f", epoch, train_time, train_avg_loss
         )
         #
-        scheduler.step(train_avg_loss)
+        _scheduler_step(scheduler, train_avg_loss)
         #
         observers.on_fine_tuning_epoch_end(locals())
-    # Save model checkpoint
+    # Save module checkpoint
     if not train_config["distributed_training"] or rank == 0:
-        checkpoint_saver.save_checkpoint(
-            checkpointer,
-            train_config["epochs"] + train_config["finetune_epochs"],
-            0,
-            0,
-            model,
-            optimizer,
-            scheduler,
-        )
-    #
+        if train_config["save_finetune_checkpoint"]:
+            checkpoint_saver.save_checkpoint(
+                checkpointer,
+                train_config["epochs"] + train_config["finetune_epochs"],
+                0,
+                0,
+                module,
+                optimizer,
+                scheduler,
+            )
+    # Unwrap module if distributed
+    if type(module) is DDP:
+        module = cast(nn.Module, module.module)
+    # Apply optimizations
+    module = Optimizations.apply(module, optimizations, "FINETUNE_END", locals())
+    # Activate observer
     observers.on_fine_tuning_end(locals())
-    # Return model(unwrapped if distributed)
-    if train_config["distributed_training"]:
-        return model.module
-    else:
-        return model
+    # Return module
+    return module
 
 
 def _test(
-    model: nn.Module,
+    module: nn.Module,
     dataset: SpeechSeparationDataset,
     optimizations: list[Optimization],
     checkpointer: Checkpointer,
     checkpoint_name: Optional[str],
     observers: TrainingObservers,
-    loss: losses.Loss,
+    loss: loss.Loss,
     device: torch.device,
+    seed: int,
     train_config: ReducedTrainingConfig,
-):
+) -> nn.Module:
     logger.info(
         "Using test metrics: %s",
         ", ".join(metric.__name__ for metric in train_config["test_metrics"]),
     )
     # Setup variables
-    test_dataloader = _get_dataloader(dataset.get_test(), device, train_config)
+    test_dataloader = _get_dataloader(dataset.get_test(), device, seed, train_config)
     # If we didn't train we need to load a checkpoint
     if train_config["test_only"]:
         assert checkpoint_name is not None
         _, _, data = checkpointer.load_checkpoint(checkpoint_name)
-        model.load_state_dict(data[CheckpointerKeys.MODEL_STATE_DICT])
+        module.load_state_dict(data[CheckpointerKeys.MODULE_STATE_DICT])
         logger.info("Using checkpoint for testing: %s", checkpoint_name)
     # Apply optimizations and begin data loop
-    model = Optimizations.apply(model, optimizations, stage="test")
-    # Transfer the model to the device
-    model = model.to(device)
-    # If we are distributed wrap the model in DDP
-    if train_config["distributed_training"]:
-        model = DDP(model, device_ids=[device.index])
-    #
+    module = Optimizations.apply(module, optimizations, "TEST_START", locals())
+    # Transfer the module to the device
+    module = module.to(device)
+    # Activate observer
     observers.on_testing_start(locals())
     # Data loop
     test_avg_loss, test_avg_metrics, test_time = test_loop(
         test_dataloader,
-        model,
+        module,
         loss,
         train_config["test_metrics"],
         device,
+        train_config["calculate_test_metrics_improvement"],
     )
     # Log data
     metrics_str = ", ".join(["%f"] * len(test_avg_metrics))
     logger.info(
-        f"Test|Time: %f|Loss: %f|Metrics: {metrics_str}",
+        f"Test|Time: %f s|Loss: %f|Metrics: {metrics_str}",
         test_time,
         test_avg_loss,
         *test_avg_metrics,
     )
-    #
+    # Activate observer
     observers.on_testing_end(locals())
+    # Return module
+    return module
 
 
 def train_test(
@@ -370,20 +396,24 @@ def train_test(
         optimization_configs,
         train_config,
     )
-    loss = losses.PermutationInvariantLoss(
-        train_config["loss"],
-        train_config["use_greedy_permutation_invariant_loss"],
-    )
+    loss = train_config["loss"]
+    if train_config["convert_loss_to_permutation_invariant"] != "no":
+        loss = PermutationInvariantMetric(
+            loss,
+            train_config["convert_loss_to_permutation_invariant"] == "greedy",
+        )
     observers = TrainingObservers(train_config["observers"])
+    module = model.get_module()
     # Log variables
     logger.info("Using id: %s", identifier)
     logger.info("Using seed: %d", seed)
     logger.info("Using loss: %s", train_config["loss"].__name__)
-    #
+    # Activate observer
     observers.on_program_start(locals())
     # Train (if enabled)
     if not train_config["test_only"]:
-        model = _train(
+        module = _train(
+            module,
             model,
             dataset,
             optimizations,
@@ -393,10 +423,12 @@ def train_test(
             observers,
             loss,
             device,
+            seed,
             train_config,
         )
-        if Optimizations.requireFinetune(optimizations):
-            model = _fine_tune(
+        while Optimizations.requireFinetune(optimizations):
+            module = _fine_tune(
+                module,
                 model,
                 dataset,
                 optimizations,
@@ -405,11 +437,12 @@ def train_test(
                 observers,
                 loss,
                 device,
+                seed,
                 train_config,
             )
     # Test
-    _test(
-        model,
+    module = _test(
+        module,
         dataset,
         optimizations,
         checkpointer,
@@ -417,7 +450,8 @@ def train_test(
         observers,
         loss,
         device,
+        seed,
         train_config,
     )
-    #
+    # Activate observer
     observers.on_program_end(locals())

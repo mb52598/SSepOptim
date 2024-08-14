@@ -3,10 +3,11 @@ from typing import Optional, Type
 
 import torch
 import torch.nn as nn
+import torch.optim as optim
 
 from ssepoptim.libs.asteroid import BaseEncoderMaskerDecoder, LSTMMasker
 from ssepoptim.libs.asteroid_filterbanks import Encoder, Filterbank, make_enc_dec
-from ssepoptim.model import ModelConfig, ModelFactory
+from ssepoptim.model import Model, ModelConfig, ModelFactory
 from ssepoptim.utils.type_checker import check_config_entries
 
 
@@ -25,8 +26,7 @@ class LSTMTasNetConfig(ModelConfig):
     n_filters: int
     kernel_size: int
     stride: int
-    sample_rate: int
-    in_chan: Optional[int]
+    sample_rate: float
 
 
 class _GatedEncoder(nn.Module):
@@ -46,7 +46,7 @@ class _GatedEncoder(nn.Module):
         return sig_out * relu_out
 
 
-class LSTMTasNet(BaseEncoderMaskerDecoder):
+class LSTMTasNetModule(BaseEncoderMaskerDecoder):
     """DPTNet separation model, as described in [1].
 
     Args:
@@ -101,13 +101,6 @@ class LSTMTasNet(BaseEncoderMaskerDecoder):
             sample_rate=config["sample_rate"],
         )
         n_feats = encoder.n_feats_out
-        if config["in_chan"] is not None:
-            assert config["in_chan"] == n_feats, (
-                "Number of filterbank output channels"
-                " and number of input channels should "
-                "be the same. Received "
-                "{} and {}".format(n_feats, config["in_chan"])
-            )
 
         # Real gated encoder
         encoder = _GatedEncoder(encoder)
@@ -125,9 +118,23 @@ class LSTMTasNet(BaseEncoderMaskerDecoder):
             n_layers=config["n_layers"],
             dropout=config["dropout"],
         )
-        super().__init__(
-            encoder, masker, decoder, encoder_activation=config["encoder_activation"]
-        )
+        super().__init__(encoder, masker, decoder, config["encoder_activation"])
+
+
+class LSTMTasNet(Model):
+    def __init__(self, config: LSTMTasNetConfig):
+        self._config = config
+
+    def get_module(self) -> nn.Module:
+        return LSTMTasNetModule(self._config)
+
+    def get_optimizer(self, model: nn.Module) -> optim.Optimizer:
+        return optim.Adam(model.parameters(), lr=0.001, weight_decay=0)
+
+    def get_scheduler(
+        self, optimizer: optim.Optimizer
+    ) -> optim.lr_scheduler.LRScheduler:
+        return optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=5)
 
 
 class LSTMTasNetFactory(ModelFactory):

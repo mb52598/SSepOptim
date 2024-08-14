@@ -1,10 +1,11 @@
 from typing import Optional, Type
 
 import torch.nn as nn
+import torch.optim as optim
 
 from ssepoptim.libs.asteroid import BaseEncoderMaskerDecoder, DPTransformer
 from ssepoptim.libs.asteroid_filterbanks import Filterbank, make_enc_dec
-from ssepoptim.model import ModelConfig, ModelFactory
+from ssepoptim.model import Model, ModelConfig, ModelFactory
 from ssepoptim.utils.type_checker import check_config_entries
 
 
@@ -15,13 +16,12 @@ class DPTNetConfig(ModelConfig):
     chunk_size: int
     hop_size: Optional[int]
     n_repeats: int
-    norm: Type[nn.Module]
+    norm_type: Type[nn.Module]
     ff_activation: Type[nn.Module]
     encoder_activation: Type[nn.Module]
     mask_act: Type[nn.Module]
     bidirectional: bool
     dropout: int
-    in_chan: Optional[int]
     fb_class: Type[Filterbank]
     kernel_size: int
     n_filters: int
@@ -29,7 +29,7 @@ class DPTNetConfig(ModelConfig):
     sample_rate: int
 
 
-class DPTNet(BaseEncoderMaskerDecoder):
+class DPTNetModule(BaseEncoderMaskerDecoder):
     """DPTNet separation model, as described in [1].
 
     Args:
@@ -84,13 +84,7 @@ class DPTNet(BaseEncoderMaskerDecoder):
             sample_rate=config["sample_rate"],
         )
         n_feats = encoder.n_feats_out
-        if config["in_chan"] is not None:
-            assert config["in_chan"] == n_feats, (
-                "Number of filterbank output channels"
-                " and number of input channels should "
-                "be the same. Received "
-                "{} and {}".format(n_feats, config["in_chan"])
-            )
+
         # Update in_chan
         masker = DPTransformer(
             n_feats,
@@ -101,7 +95,7 @@ class DPTNet(BaseEncoderMaskerDecoder):
             chunk_size=config["chunk_size"],
             hop_size=config["hop_size"],
             n_repeats=config["n_repeats"],
-            norm=config["norm"],
+            norm_type=config["norm_type"],
             mask_act=config["mask_act"],
             bidirectional=config["bidirectional"],
             dropout=config["dropout"],
@@ -109,6 +103,22 @@ class DPTNet(BaseEncoderMaskerDecoder):
         super().__init__(
             encoder, masker, decoder, encoder_activation=config["encoder_activation"]
         )
+
+
+class DPTNet(Model):
+    def __init__(self, config: DPTNetConfig):
+        self._config = config
+
+    def get_module(self) -> nn.Module:
+        return DPTNetModule(self._config)
+
+    def get_optimizer(self, model: nn.Module) -> optim.Optimizer:
+        return optim.Adam(model.parameters())
+
+    def get_scheduler(
+        self, optimizer: optim.Optimizer
+    ) -> optim.lr_scheduler.LRScheduler:
+        return optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=5)
 
 
 class DPTNetFactory(ModelFactory):

@@ -8,6 +8,7 @@ from ssepoptim.dataset import (
     SpeechSeparationDataset,
     SpeechSeparationDatasetConfig,
     SpeechSeparationDatasetFactory,
+    SpeechSeparationDatasetType,
 )
 from ssepoptim.datasets.utils.csv_dataset import CsvAudioDataset
 from ssepoptim.utils.type_checker import check_config_entries
@@ -18,12 +19,10 @@ class Aishell1MixDatasetConfig(SpeechSeparationDatasetConfig):
 
 
 class Aishell1MixDataset(SpeechSeparationDataset):
-    _DATASET_TYPE = SpeechSeparationDataset._DATASET_TYPE
-
     def __init__(self, config: Aishell1MixDatasetConfig):
         self._config = config
 
-    def _get(self, subfolder: Literal["tr", "cv", "tt"]) -> _DATASET_TYPE:
+    def _get(self, subfolder: Literal["tr", "cv", "tt"]) -> SpeechSeparationDatasetType:
         metadata_path = os.path.join(
             self._config["path"],
             "aishell1mix",
@@ -45,13 +44,13 @@ class Aishell1MixDataset(SpeechSeparationDataset):
             ["source_1_path", "source_2_path"],
         )
 
-    def get_train(self) -> _DATASET_TYPE:
+    def get_train(self) -> SpeechSeparationDatasetType:
         return self._get("tr")
 
-    def get_valid(self) -> _DATASET_TYPE:
+    def get_valid(self) -> SpeechSeparationDatasetType:
         return self._get("cv")
 
-    def get_test(self) -> _DATASET_TYPE:
+    def get_test(self) -> SpeechSeparationDatasetType:
         return self._get("tt")
 
 

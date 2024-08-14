@@ -33,3 +33,11 @@ def fold(iterable: Iterable[T], func: Callable[[T, T], T], start: T) -> T:
 
 def without_index(iterable: Iterable[T], index: int) -> list[T]:
     return [value for i, value in enumerate(iterable) if i != index]
+
+
+def convert_not_none(value: K | None, func: Callable[[K], V]) -> V | None:
+    if value is not None:
+        result = func(value)
+    else:
+        result = None
+    return result

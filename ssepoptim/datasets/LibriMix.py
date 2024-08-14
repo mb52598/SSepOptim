@@ -12,6 +12,7 @@ from ssepoptim.dataset import (
     SpeechSeparationDataset,
     SpeechSeparationDatasetConfig,
     SpeechSeparationDatasetFactory,
+    SpeechSeparationDatasetType,
 )
 from ssepoptim.datasets.utils.csv_dataset import CsvAudioDataset
 from ssepoptim.utils.type_checker import check_config_entries
@@ -22,12 +23,10 @@ class LibriMixDatasetConfig(SpeechSeparationDatasetConfig):
 
 
 class LibriMixDataset(SpeechSeparationDataset):
-    _DATASET_TYPE = SpeechSeparationDataset._DATASET_TYPE
-
     def __init__(self, config: LibriMixDatasetConfig):
         self._config = config
 
-    def _get(self, subfolder: Literal["tr", "cv", "tt"]) -> _DATASET_TYPE:
+    def _get(self, subfolder: Literal["tr", "cv", "tt"]) -> SpeechSeparationDatasetType:
         metadata_path = os.path.join(
             self._config["path"], "Libri2Mix", "wav8k", "min", "metadata"
         )
@@ -53,13 +52,13 @@ class LibriMixDataset(SpeechSeparationDataset):
             ),
         )
 
-    def get_train(self) -> _DATASET_TYPE:
+    def get_train(self) -> SpeechSeparationDatasetType:
         return self._get("tr")
 
-    def get_valid(self) -> _DATASET_TYPE:
+    def get_valid(self) -> SpeechSeparationDatasetType:
         return self._get("cv")
 
-    def get_test(self) -> _DATASET_TYPE:
+    def get_test(self) -> SpeechSeparationDatasetType:
         return self._get("tt")
 
 

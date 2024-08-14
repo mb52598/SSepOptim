@@ -1,20 +1,23 @@
-from typing import Optional, Type
+import random
+import time
+from typing import Literal, Optional, Type
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-import ssepoptim.losses as losses
-import ssepoptim.metrics as metrics
+import ssepoptim.loss as loss
 from ssepoptim.base.checkpointing import Checkpointer
 from ssepoptim.base.configuration import BaseConfig
-from ssepoptim.dataset import SpeechSeparationDatasetConfig
+from ssepoptim.dataset import SpeechSeparationDatasetConfig, SpeechSeparationDatasetType
+from ssepoptim.metrics.base import Metric
 from ssepoptim.model import ModelConfig
 from ssepoptim.optimization import OptimizationConfig
 from ssepoptim.training.training_observer import TrainingObserver
 from ssepoptim.utils.context_timer import CtxTimer
 from ssepoptim.utils.conversion import dict_any_to_str
+from ssepoptim.utils.torch_utils import synchronize_device
 
 DatasetData = tuple[torch.Tensor, torch.Tensor]
 DatasetDataLoader = DataLoader[DatasetData]
@@ -31,7 +34,7 @@ class CheckpointerKeys:
     OPTIMIZATION_CONFIGS = "optimization_configs"
     DATASET_CONFIG = "dataset_config"
     TRAINING_CONFIG = "training_config"
-    MODEL_STATE_DICT = "model_state_dict"
+    MODULE_STATE_DICT = "module_state_dict"
     OPTIMIZER_STATE_DICT = "optimizer_state_dict"
     SCHEDULER_STATE_DICT = "scheduler_state_dict"
 
@@ -40,19 +43,21 @@ class ReducedTrainingConfig(BaseConfig):
     epochs: int
     finetune_epochs: int
     batch_size: int
-    lr: float
+    clip_grad_norm: Optional[float]
     shuffle: bool
     num_workers: int
     checkpoint_epoch_log: int
-    loss: losses.Loss
-    use_greedy_permutation_invariant_loss: bool
+    loss: loss.Loss
+    convert_loss_to_permutation_invariant: Literal["yes", "greedy", "no"]
     load_last_checkpoint: bool
-    apply_performance_optimizers: Optional[bool]
-    test_only: Optional[bool]
-    test_metrics: list[metrics.Metric]
+    save_finetune_checkpoint: bool
+    apply_performance_optimizers: bool
+    test_only: bool
+    test_metrics: list[Metric]
+    calculate_test_metrics_improvement: bool
     checkpoints_path: str
     observers: list[Type[TrainingObserver]]
-    distributed_training: Optional[bool]
+    distributed_training: bool
 
 
 class TrainingConfig(ReducedTrainingConfig):
@@ -63,12 +68,13 @@ class TrainingConfig(ReducedTrainingConfig):
 
 def train_loop(
     train_dataloader: DatasetDataLoader,
-    model: nn.Module,
-    loss: losses.Loss,
+    module: nn.Module,
+    loss: loss.Loss,
     optimizer: optim.Optimizer,
     device: Optional[torch.device],
+    clip_grad_norm: Optional[float],
 ):
-    model.train()
+    module.train()
     train_loss_sum = torch.zeros(1, device=device)
     timer = CtxTimer()
     mix: torch.Tensor
@@ -76,11 +82,13 @@ def train_loop(
     for mix, target in train_dataloader:
         mix = mix.to(device)
         target = target.to(device)
-        separation = model(mix)
-        separation_loss = torch.mean(loss(separation, target), dim=0)
+        separation = module(mix)
+        separation_loss = torch.mean(loss(separation, target))
         train_loss_sum += separation_loss
         optimizer.zero_grad(set_to_none=True)
         separation_loss.backward()
+        if clip_grad_norm is not None:
+            nn.utils.clip_grad_norm_(module.parameters(), clip_grad_norm)
         optimizer.step()
     train_avg_loss = train_loss_sum.item() / len(train_dataloader)
     return train_avg_loss, timer.total
@@ -88,11 +96,11 @@ def train_loop(
 
 def valid_loop(
     valid_dataloader: DatasetDataLoader,
-    model: nn.Module,
-    loss: losses.Loss,
+    module: nn.Module,
+    loss: loss.Loss,
     device: Optional[torch.device],
 ):
-    model.eval()
+    module.eval()
     valid_loss_sum = torch.zeros(1, device=device)
     timer = CtxTimer()
     with torch.no_grad():
@@ -101,23 +109,40 @@ def valid_loop(
         for mix, target in valid_dataloader:
             mix = mix.to(device)
             target = target.to(device)
-            separation = model(mix)
-            separation_loss = torch.mean(loss(separation, target), dim=0)
+            separation = module(mix)
+            separation_loss = torch.mean(loss(separation, target))
             valid_loss_sum += separation_loss
     valid_avg_loss = valid_loss_sum.item() / len(valid_dataloader)
     return valid_avg_loss, timer.total
 
 
+def _calculate_metric_improvement(
+    metrics: list[Metric],
+    mix: torch.Tensor,
+    target: torch.Tensor,
+    separation: torch.Tensor,
+):
+    return [
+        torch.mean(
+            metric(separation, target)
+            - metric(mix.expand(-1, target.shape[1], -1), target)
+        )
+        for metric in metrics
+    ]
+
+
 def test_loop(
     test_dataloader: DatasetDataLoader,
-    model: nn.Module,
-    loss: losses.Loss,
-    metrics: list[metrics.Metric],
+    module: nn.Module,
+    loss: loss.Loss,
+    metrics: list[Metric],
     device: Optional[torch.device],
+    calculate_improvement: bool,
 ):
-    model.eval()
+    module.eval()
     test_loss_sum = torch.zeros(1, device=device)
-    test_metrics_sum: torch.Tensor = torch.zeros(len(metrics), device=device)
+    num_metrics = len(metrics) * 2 if calculate_improvement else len(metrics)
+    test_metrics_sum: torch.Tensor = torch.zeros(num_metrics, device=device)
     timer = CtxTimer()
     with torch.no_grad():
         mix: torch.Tensor
@@ -125,13 +150,13 @@ def test_loop(
         for mix, target in test_dataloader:
             mix = mix.to(device)
             target = target.to(device)
-            separation = model(mix)
-            separation_loss = torch.mean(loss(separation, target), dim=0)
+            separation: torch.Tensor = module(mix)
+            separation_loss = torch.mean(loss(separation, target))
             metric_values = torch.stack(
-                [
-                    torch.mean(metric(separation, target) - metric(mix, target))
-                    for metric in metrics
-                ]
+                [torch.mean(metric(separation, target)) for metric in metrics]
+                + _calculate_metric_improvement(metrics, mix, target, separation)
+                if calculate_improvement
+                else []
             )
             test_loss_sum += separation_loss
             test_metrics_sum += metric_values
@@ -179,7 +204,7 @@ def save_checkpoint(
     epoch: int,
     train_avg_loss: float,
     valid_avg_loss: float,
-    model: nn.Module,
+    module: nn.Module,
     optimizer: optim.Optimizer,
     scheduler: optim.lr_scheduler.LRScheduler,
     model_config: ModelConfig,
@@ -205,16 +230,88 @@ def save_checkpoint(
             CheckpointerKeys.TRAINING_CONFIG: train_config,
         },
         data={
-            CheckpointerKeys.MODEL_STATE_DICT: model.state_dict(),
+            CheckpointerKeys.MODULE_STATE_DICT: module.state_dict(),
             CheckpointerKeys.OPTIMIZER_STATE_DICT: optimizer.state_dict(),
             CheckpointerKeys.SCHEDULER_STATE_DICT: scheduler.state_dict(),
         },
     )
 
 
-def get_optimizer(model: nn.Module, lr: float):
-    return optim.Adam(model.parameters(), lr)
+def sample_dataset(
+    dataset: SpeechSeparationDatasetType, batch_size: int
+) -> tuple[torch.Tensor, torch.Tensor]:
+    return collate_fn([random.choice(dataset) for _ in range(batch_size)])
 
 
-def get_scheduler(optimizer: optim.Optimizer):
-    return optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=2)
+def _get_module_latency(
+    module: nn.Module,
+    dataset: SpeechSeparationDatasetType,
+    batch_size: int,
+    device: torch.device,
+    number: int,
+) -> float:
+    total_time = 0
+    for _ in range(number):
+        # Start time
+        start_time = time.perf_counter_ns()
+        # Run module
+        module(sample_dataset(dataset, batch_size)[0].to(device))
+        # Synchronize
+        synchronize_device(device)
+        # Add time
+        total_time += time.perf_counter_ns() - start_time
+    return total_time / number
+
+
+def _get_module_throughput(
+    module: nn.Module,
+    dataset: SpeechSeparationDatasetType,
+    batch_size: int,
+    device: torch.device,
+    number: int,
+) -> float:
+    # Start time
+    start_time = time.time()
+    # Run module
+    for _ in range(number):
+        module(sample_dataset(dataset, batch_size)[0].to(device))
+    # Synchronize
+    synchronize_device(device)
+    # Finish time
+    total_time = time.time() - start_time
+    # Return batch/s
+    return number / total_time
+
+
+def get_module_latency_and_throughput(
+    module: nn.Module,
+    dataset: SpeechSeparationDatasetType,
+    batch_size: int,
+    device: torch.device,
+    warmup_number: int = 10,
+    test_number: int = 10,
+) -> tuple[float, float]:
+    # Save current mode
+    prev_mode = module.training
+    # Switch to evaluation
+    module.eval()
+    # Use no gradients
+    with torch.no_grad():
+        # Initial execution
+        module(sample_dataset(dataset, batch_size)[0].to(device))
+        # Warmup phase
+        for _ in range(warmup_number):
+            module(sample_dataset(dataset, batch_size)[0].to(device))
+        # Initial synchronize
+        synchronize_device(device)
+        # Test phase
+        latency_time = _get_module_latency(
+            module, dataset, batch_size, device, test_number
+        )
+        throughput_time = _get_module_throughput(
+            module, dataset, batch_size, device, test_number
+        )
+    # Go back to the saved mode
+    module.train(prev_mode)
+    # Return time
+    return latency_time, throughput_time

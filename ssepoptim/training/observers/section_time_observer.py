@@ -16,7 +16,7 @@ class SectionTimeObserver(TrainingObserver):
         self._timer.reset()
 
     def _log_timer(self, prefix: str):
-        logger.info("%s|Time: %f", prefix, self._timer.total)
+        logger.info("%s|Time: %f s", prefix, self._timer.total)
 
     def on_training_start(self, locals: dict[str, Any]):
         self._reset_timer()

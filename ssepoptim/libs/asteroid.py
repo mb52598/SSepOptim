@@ -101,12 +101,12 @@ def z_norm(x: torch.Tensor, dims: list[int], eps: float = 1e-8):
 
 
 def _glob_norm(x: torch.Tensor, eps: float = 1e-8):
-    dims: list[int] = torch.arange(1, len(x.shape)).tolist()
+    dims = list(range(1, x.dim()))
     return z_norm(x, dims, eps)
 
 
 def _feat_glob_norm(x: torch.Tensor, eps: float = 1e-8):
-    dims: list[int] = torch.arange(2, len(x.shape)).tolist()
+    dims = list(range(2, x.dim()))
     return z_norm(x, dims, eps)
 
 
@@ -462,7 +462,7 @@ class DPTransformer(nn.Module):
         chunk_size: int = 100,
         hop_size: Optional[int] = None,
         n_repeats: int = 6,
-        norm: Type[nn.Module] = GlobLN,
+        norm_type: Type[nn.Module] = GlobLN,
         ff_activation: Type[nn.Module] = nn.ReLU,
         mask_act: Type[nn.Module] = nn.ReLU,
         bidirectional: bool = True,
@@ -479,7 +479,7 @@ class DPTransformer(nn.Module):
         self.hop_size = hop_size
         self.n_repeats = n_repeats
         self.n_src = n_src
-        self.norm = norm
+        self.norm_type = norm_type
         self.ff_activation = ff_activation
         self.mask_act = mask_act
         self.bidirectional = bidirectional
@@ -496,7 +496,7 @@ class DPTransformer(nn.Module):
         else:
             self.input_layer = None
 
-        self.in_norm = norm(self.mha_in_dim)
+        self.in_norm = norm_type(self.mha_in_dim)
         self.ola = DualPathProcessing(self.chunk_size, self.hop_size)
 
         # Succession of DPRNNBlocks.
@@ -512,7 +512,7 @@ class DPTransformer(nn.Module):
                             self.dropout,
                             self.ff_activation,
                             True,
-                            self.norm,
+                            self.norm_type,
                         ),
                         ImprovedTransformedLayer(
                             self.mha_in_dim,
@@ -521,7 +521,7 @@ class DPTransformer(nn.Module):
                             self.dropout,
                             self.ff_activation,
                             self.bidirectional,
-                            self.norm,
+                            self.norm_type,
                         ),
                     ]
                 )
@@ -562,11 +562,13 @@ class DPTransformer(nn.Module):
         batch, _, self.chunk_size, n_chunks = mixture_w.size()
 
         for layer_idx in range(len(self.layers)):
-            intra, inter = self.layers[layer_idx]
+            module_list = self.layers[layer_idx]
+            assert type(module_list) is nn.ModuleList
+            intra, inter = module_list
             mixture_w = self.ola.intra_process(mixture_w, intra)
             mixture_w = self.ola.inter_process(mixture_w, inter)
 
-        output = self.first_out(mixture_w)
+        output: torch.Tensor = self.first_out(mixture_w)
         output = output.reshape(
             batch * self.n_src, self.in_chan, self.chunk_size, n_chunks
         )
@@ -595,7 +597,7 @@ class BaseEncoderMaskerDecoder(nn.Module):
         encoder: nn.Module,
         masker: nn.Module,
         decoder: nn.Module,
-        encoder_activation: Optional[Type[nn.Module]] = None,
+        encoder_activation: Type[nn.Module],
     ):
         super().__init__()
 
@@ -603,7 +605,7 @@ class BaseEncoderMaskerDecoder(nn.Module):
         self.masker = masker
         self.decoder = decoder
         self.encoder_activation = encoder_activation
-        self.enc_activation = (encoder_activation or nn.Identity)()
+        self.enc_activation = encoder_activation()
 
     def forward(self, wav: torch.Tensor) -> torch.Tensor:
         """Enc/Mask/Dec model forward
@@ -729,7 +731,7 @@ class SingleRNN(nn.Module):
 
     def forward(self, inp: torch.Tensor) -> torch.Tensor:
         """Input shape [batch, seq, feats]"""
-        self.rnn.flatten_parameters()  # Enables faster multi-GPU training.
+        # self.rnn.flatten_parameters()  # Enables faster multi-GPU training.
         output = inp
         rnn_output, _ = self.rnn(output)
         return rnn_output
@@ -813,3 +815,218 @@ class LSTMMasker(nn.Module):
         est_masks = est_masks.transpose(-1, -2)
         est_masks = est_masks.view(batch_size, self.n_src, self.out_chan, -1)
         return est_masks
+
+
+class _Chop1d(nn.Module):
+    """To ensure the output length is the same as the input."""
+
+    def __init__(self, chop_size: int):
+        super().__init__()
+
+        self.chop_size = chop_size
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x[..., : -self.chop_size].contiguous()
+
+
+class Conv1DBlock(nn.Module):
+    """One dimensional convolutional block, as proposed in [1].
+
+    Args:
+        in_chan (int): Number of input channels.
+        hid_chan (int): Number of hidden channels in the depth-wise
+            convolution.
+        skip_out_chan (int): Number of channels in the skip convolution.
+            If 0 or None, `Conv1DBlock` won't have any skip connections.
+            Corresponds to the the block in v1 or the paper. The `forward`
+            return res instead of [res, skip] in this case.
+        kernel_size (int): Size of the depth-wise convolutional kernel.
+        padding (int): Padding of the depth-wise convolution.
+        dilation (int): Dilation of the depth-wise convolution.
+        norm_type (str, optional): Type of normalization to use. To choose from
+
+            -  ``'gLN'``: global Layernorm.
+            -  ``'cLN'``: channelwise Layernorm.
+            -  ``'cgLN'``: cumulative global Layernorm.
+            -  Any norm supported by :func:`~.norms.get`
+        causal (bool, optional) : Whether or not the convolutions are causal
+
+
+    References
+        [1] : "Conv-TasNet: Surpassing ideal time-frequency magnitude masking
+        for speech separation" TASLP 2019 Yi Luo, Nima Mesgarani
+        https://arxiv.org/abs/1809.07454
+    """
+
+    def __init__(
+        self,
+        in_chan: int,
+        hid_chan: int,
+        skip_out_chan: int,
+        kernel_size: int,
+        padding: int,
+        dilation: int,
+        norm_type: Type[nn.Module] = GlobLN,
+        causal: bool = False,
+    ):
+        super().__init__()
+
+        self.skip_out_chan = skip_out_chan
+        conv_norm = norm_type
+        in_conv1d = nn.Conv1d(in_chan, hid_chan, 1)
+        depth_conv1d = nn.Conv1d(
+            hid_chan,
+            hid_chan,
+            kernel_size,
+            padding=padding,
+            dilation=dilation,
+            groups=hid_chan,
+        )
+        if causal:
+            depth_conv1d = nn.Sequential(depth_conv1d, _Chop1d(padding))
+        self.shared_block = nn.Sequential(
+            in_conv1d,
+            nn.PReLU(),
+            conv_norm(hid_chan),
+            depth_conv1d,
+            nn.PReLU(),
+            conv_norm(hid_chan),
+        )
+        self.res_conv = nn.Conv1d(hid_chan, in_chan, 1)
+        if skip_out_chan:
+            self.skip_conv = nn.Conv1d(hid_chan, skip_out_chan, 1)
+
+    def forward(
+        self, x: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor] | torch.Tensor:
+        r"""Input shape $(batch, feats, seq)$."""
+        shared_out = self.shared_block(x)
+        res_out = self.res_conv(shared_out)
+        if not self.skip_out_chan:
+            return res_out
+        skip_out = self.skip_conv(shared_out)
+        return res_out, skip_out
+
+
+class TDConvNet(nn.Module):
+    """Temporal Convolutional network used in ConvTasnet.
+
+    Args:
+        in_chan (int): Number of input filters.
+        n_src (int): Number of masks to estimate.
+        out_chan (int, optional): Number of bins in the estimated masks.
+            If ``None``, `out_chan = in_chan`.
+        n_blocks (int, optional): Number of convolutional blocks in each
+            repeat. Defaults to 8.
+        n_repeats (int, optional): Number of repeats. Defaults to 3.
+        bn_chan (int, optional): Number of channels after the bottleneck.
+        hid_chan (int, optional): Number of channels in the convolutional
+            blocks.
+        skip_chan (int, optional): Number of channels in the skip connections.
+            If 0 or None, TDConvNet won't have any skip connections and the
+            masks will be computed from the residual output.
+            Corresponds to the ConvTasnet architecture in v1 or the paper.
+        conv_kernel_size (int, optional): Kernel size in convolutional blocks.
+        norm_type (str, optional): To choose from ``'BN'``, ``'gLN'``,
+            ``'cLN'``.
+        mask_act (str, optional): Which non-linear function to generate mask.
+        causal (bool, optional) : Whether or not the convolutions are causal.
+
+    References
+        [1] : "Conv-TasNet: Surpassing ideal time-frequency magnitude masking
+        for speech separation" TASLP 2019 Yi Luo, Nima Mesgarani
+        https://arxiv.org/abs/1809.07454
+    """
+
+    def __init__(
+        self,
+        in_chan: int,
+        n_src: int,
+        out_chan: Optional[int] = None,
+        n_blocks: int = 8,
+        n_repeats: int = 3,
+        bn_chan: int = 128,
+        hid_chan: int = 512,
+        skip_chan: int = 128,
+        conv_kernel_size: int = 3,
+        norm_type: Type[nn.Module] = GlobLN,
+        mask_act: Type[nn.Module] = nn.ReLU,
+        causal: bool = False,
+    ):
+        super().__init__()
+
+        self.in_chan = in_chan
+        self.n_src = n_src
+        out_chan = out_chan if out_chan else in_chan
+        self.out_chan = out_chan
+        self.n_blocks = n_blocks
+        self.n_repeats = n_repeats
+        self.bn_chan = bn_chan
+        self.hid_chan = hid_chan
+        self.skip_chan = skip_chan
+        self.conv_kernel_size = conv_kernel_size
+        self.norm_type = norm_type
+        self.mask_act = mask_act
+        self.causal = causal
+
+        layer_norm = norm_type(in_chan)
+        bottleneck_conv = nn.Conv1d(in_chan, bn_chan, 1)
+        self.bottleneck = nn.Sequential(layer_norm, bottleneck_conv)
+        # Succession of Conv1DBlock with exponentially increasing dilation.
+        self.TCN = nn.ModuleList()
+        for _ in range(n_repeats):
+            for x in range(n_blocks):
+                if not causal:
+                    padding = (conv_kernel_size - 1) * 2**x // 2
+                else:
+                    padding = (conv_kernel_size - 1) * 2**x
+                self.TCN.append(
+                    Conv1DBlock(
+                        bn_chan,
+                        hid_chan,
+                        skip_chan,
+                        conv_kernel_size,
+                        padding=padding,
+                        dilation=2**x,
+                        norm_type=norm_type,
+                        causal=causal,
+                    )
+                )
+        mask_conv_inp = skip_chan if skip_chan else bn_chan
+        mask_conv = nn.Conv1d(mask_conv_inp, n_src * out_chan, 1)
+        self.mask_net = nn.Sequential(nn.PReLU(), mask_conv)
+        # Get activation function.
+        mask_nl_class = mask_act
+        # For softmax, feed the source dimension.
+        if has_arg(mask_nl_class, "dim"):
+            self.output_act = mask_nl_class(dim=1)
+        else:
+            self.output_act = mask_nl_class()
+
+    def forward(self, mixture_w: torch.Tensor) -> torch.Tensor:
+        r"""Forward.
+
+        Args:
+            mixture_w (:class:`torch.Tensor`): Tensor of shape $(batch, nfilters, nframes)$
+
+        Returns:
+            :class:`torch.Tensor`: estimated mask of shape $(batch, nsrc, nfilters, nframes)$
+        """
+        batch, _, n_frames = mixture_w.size()
+        output: torch.Tensor = self.bottleneck(mixture_w)
+        skip_connection = torch.tensor([0.0], device=output.device)
+        for layer in self.TCN:
+            # Common to w. skip and w.o skip architectures
+            tcn_out = layer(output)
+            if self.skip_chan:
+                residual, skip = tcn_out
+                skip_connection = skip_connection + skip
+            else:
+                residual = tcn_out
+            output = output + residual
+        # Use residual output when no skip connection
+        mask_inp = skip_connection if self.skip_chan else output
+        score: torch.Tensor = self.mask_net(mask_inp)
+        score = score.view(batch, self.n_src, self.out_chan, n_frames)
+        est_mask = self.output_act(score)
+        return est_mask
