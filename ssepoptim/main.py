@@ -3,6 +3,8 @@ import os
 from datetime import datetime
 from typing import Literal, Optional
 
+import torch
+
 import ssepoptim.datasets as _
 import ssepoptim.models as _
 import ssepoptim.optimizations as _
@@ -24,6 +26,7 @@ class MainConfig(BaseConfig):
     log_level: Literal[
         "CRITICAL", "FATAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"
     ]
+    cuda_trace_memory_usage_path: Optional[str]
 
 
 def main(config_path: str):
@@ -71,6 +74,8 @@ def main(config_path: str):
         ", ".join(config["optimizations"]),
     )
     # Train and test
+    if config["cuda_trace_memory_usage_path"] is not None:
+        torch.cuda.memory._record_memory_history()
     train_test(
         config["model"],
         config["dataset"],
@@ -80,3 +85,5 @@ def main(config_path: str):
         optimization_configs,
         train_config,
     )
+    if config["cuda_trace_memory_usage_path"] is not None:
+        torch.cuda.memory._dump_snapshot(config["cuda_trace_memory_usage_path"])
