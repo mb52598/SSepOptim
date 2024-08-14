@@ -175,7 +175,7 @@ def _train(
     rank = None
     if train_config["distributed_training"]:
         rank = get_global_rank()
-        module = DDP(module, device_ids=[device.index])
+        module = DDP(module, device_ids=[device.index], find_unused_parameters=True)
     # Data loop
     for epoch in range(start_epoch, train_config["epochs"] + 1):
         observers.on_training_epoch_start(locals())
@@ -262,7 +262,7 @@ def _fine_tune(
     rank = None
     if train_config["distributed_training"]:
         rank = get_global_rank()
-        module = DDP(module, device_ids=[device.index])
+        module = DDP(module, device_ids=[device.index], find_unused_parameters=True)
     # Data loop
     for epoch in range(1, train_config["finetune_epochs"] + 1):
         observers.on_fine_tuning_epoch_start(locals())

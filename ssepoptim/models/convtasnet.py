@@ -81,8 +81,9 @@ class ConvTasNetModule(BaseEncoderMaskerDecoder):
         )
         n_feats = encoder.n_feats_out
 
+        norm_type = config["norm_type"]
         if config["causal"] and config["norm_type"] not in [CumLN, ChanLN]:
-            norm_type = "cLN"
+            norm_type = CumLN
             warnings.warn(
                 "In causal configuration cumulative layer normalization (cgLN)"
                 "or channel-wise layer normalization (chanLN)  "
@@ -100,7 +101,7 @@ class ConvTasNetModule(BaseEncoderMaskerDecoder):
             hid_chan=config["hid_chan"],
             skip_chan=config["skip_chan"],
             conv_kernel_size=config["conv_kernel_size"],
-            norm_type=config["norm_type"],
+            norm_type=norm_type,
             mask_act=config["mask_act"],
             causal=config["causal"],
         )
