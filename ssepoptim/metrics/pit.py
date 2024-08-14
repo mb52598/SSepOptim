@@ -79,7 +79,10 @@ def fbss_pit_wrap(
     for pred, tgt in zip(prediction, target):
         pred = pred.unsqueeze(1).expand(-1, channels, -1)
         tgt = tgt.unsqueeze(0).expand(channels, -1, -1)
-        cost_mat = metric(prediction, target)
+        cost_mat = metric(pred, tgt)
+        assert cost_mat.dim() in [2, 3]
+        if cost_mat.dim() > 2:
+            cost_mat = torch.mean(cost_mat, dim=-1)
         rows, cols = linear_sum_assignment(cost_mat)
         values.append(torch.mean(cost_mat[rows, cols]))
     return torch.stack(values)

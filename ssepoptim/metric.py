@@ -109,12 +109,12 @@ def scale_invariant_signal_to_distortion_ratio_pit(
     return fbss_pit_wrap(scale_invariant_signal_to_distortion_ratio, prediction, target)
 
 
-def signal_to_distortion_ratio_pit(
+def signal_to_distortion_ratio_fbss_pit(
     prediction: torch.Tensor,
     target: torch.Tensor,
 ) -> torch.Tensor:
     try:
         result = fbss_torch.sdr(target, prediction)
     except:
-        result = torch.inf
+        result = torch.tensor([torch.inf])
     return result
