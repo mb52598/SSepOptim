@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 from ssepoptim.libs.asteroid import BaseEncoderMaskerDecoder, DPTransformer
-from ssepoptim.libs.asteroid_filterbanks import Filterbank, make_enc_dec
+from ssepoptim.libs.asteroid_filterbanks import make_enc_dec
 from ssepoptim.model import Model, ModelConfig, ModelFactory
 from ssepoptim.utils.type_checker import check_config_entries
 
@@ -22,11 +22,9 @@ class DPTNetConfig(ModelConfig):
     mask_act: Type[nn.Module]
     bidirectional: bool
     dropout: int
-    fb_class: Type[Filterbank]
     kernel_size: int
     n_filters: int
     stride: int
-    sample_rate: int
 
 
 class DPTNetModule(BaseEncoderMaskerDecoder):
@@ -77,11 +75,9 @@ class DPTNetModule(BaseEncoderMaskerDecoder):
 
     def __init__(self, config: DPTNetConfig):
         encoder, decoder = make_enc_dec(
-            config["fb_class"],
             n_filters=config["n_filters"],
             kernel_size=config["kernel_size"],
             stride=config["stride"],
-            sample_rate=config["sample_rate"],
         )
         n_feats = encoder.n_feats_out
 

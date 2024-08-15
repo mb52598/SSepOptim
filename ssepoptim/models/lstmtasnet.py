@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 from ssepoptim.libs.asteroid import BaseEncoderMaskerDecoder, LSTMMasker
-from ssepoptim.libs.asteroid_filterbanks import Encoder, Filterbank, make_enc_dec
+from ssepoptim.libs.asteroid_filterbanks import Encoder, make_enc_dec
 from ssepoptim.model import Model, ModelConfig, ModelFactory
 from ssepoptim.utils.type_checker import check_config_entries
 
@@ -21,21 +21,15 @@ class LSTMTasNetConfig(ModelConfig):
     n_layers: int
     dropout: float
     encoder_activation: Type[nn.Module]
-    #
-    fb_class: Type[Filterbank]
     n_filters: int
     kernel_size: int
     stride: int
-    sample_rate: float
 
 
 class _GatedEncoder(nn.Module):
     def __init__(self, encoder: Encoder):
         super().__init__()
 
-        # For config
-        self.filterbank = encoder.filterbank
-        self.sample_rate = getattr(encoder.filterbank, "sample_rate", None)
         # Gated encoder.
         self.encoder_relu = encoder
         self.encoder_sig = deepcopy(encoder)
@@ -94,11 +88,9 @@ class LSTMTasNetModule(BaseEncoderMaskerDecoder):
 
     def __init__(self, config: LSTMTasNetConfig):
         encoder, decoder = make_enc_dec(
-            config["fb_class"],
             n_filters=config["n_filters"],
             kernel_size=config["kernel_size"],
             stride=config["stride"],
-            sample_rate=config["sample_rate"],
         )
         n_feats = encoder.n_feats_out
 

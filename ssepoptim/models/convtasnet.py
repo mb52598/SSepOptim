@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 from ssepoptim.libs.asteroid import BaseEncoderMaskerDecoder, ChanLN, CumLN, TDConvNet
-from ssepoptim.libs.asteroid_filterbanks import Filterbank, make_enc_dec
+from ssepoptim.libs.asteroid_filterbanks import make_enc_dec
 from ssepoptim.model import Model, ModelConfig, ModelFactory
 from ssepoptim.utils.type_checker import check_config_entries
 
@@ -22,12 +22,10 @@ class ConvTasNetConfig(ModelConfig):
     norm_type: Type[nn.Module]
     mask_act: Type[nn.Module]
     causal: bool
-    fb_class: Type[Filterbank]
     n_filters: int
     kernel_size: int
     stride: int
     encoder_activation: Type[nn.Module]
-    sample_rate: float
 
 
 class ConvTasNetModule(BaseEncoderMaskerDecoder):
@@ -73,11 +71,9 @@ class ConvTasNetModule(BaseEncoderMaskerDecoder):
 
     def __init__(self, config: ConvTasNetConfig):
         encoder, decoder = make_enc_dec(
-            config["fb_class"],
             n_filters=config["n_filters"],
             kernel_size=config["kernel_size"],
             stride=config["stride"],
-            sample_rate=config["sample_rate"],
         )
         n_feats = encoder.n_feats_out
 
