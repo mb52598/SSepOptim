@@ -1,6 +1,7 @@
 import torch
 
 
+@torch.compile
 def scale_invariant_signal_to_distortion_ratio(
     prediction: torch.Tensor,
     target: torch.Tensor,

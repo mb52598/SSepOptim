@@ -19,6 +19,7 @@ from ssepoptim.metrics.sdr import (
 )
 
 
+@torch.compile
 def signal_to_noise_ratio(
     prediction: torch.Tensor, target: torch.Tensor
 ) -> torch.Tensor:

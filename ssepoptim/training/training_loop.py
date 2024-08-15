@@ -131,6 +131,30 @@ class CheckpointSaver:
         )
 
 
+def _load_train_checkpoint(
+    checkpointer: Checkpointer,
+    checkpoint_name: str,
+    module: nn.Module,
+    optimizer: optim.Optimizer,
+    scheduler: optim.lr_scheduler.LRScheduler,
+):
+    visible_metadata, _, data = checkpointer.load_checkpoint(checkpoint_name)
+    start_epoch = int(visible_metadata[CheckpointerKeys.EPOCH]) + 1
+    module.load_state_dict(data[CheckpointerKeys.MODULE_STATE_DICT])
+    optimizer.load_state_dict(data[CheckpointerKeys.OPTIMIZER_STATE_DICT])
+    scheduler.load_state_dict(data[CheckpointerKeys.SCHEDULER_STATE_DICT])
+    return start_epoch
+
+
+def _load_test_checkpoint(
+    checkpointer: Checkpointer,
+    checkpoint_name: str,
+    module: nn.Module,
+):
+    _, _, data = checkpointer.load_checkpoint(checkpoint_name)
+    module.load_state_dict(data[CheckpointerKeys.MODULE_STATE_DICT])
+
+
 def _train(
     module: nn.Module,
     model: Model,
@@ -155,11 +179,9 @@ def _train(
     start_epoch = 1
     if train_config["load_last_checkpoint"]:
         if checkpoint_name is not None:
-            visible_metadata, _, data = checkpointer.load_checkpoint(checkpoint_name)
-            start_epoch = int(visible_metadata[CheckpointerKeys.EPOCH]) + 1
-            module.load_state_dict(data[CheckpointerKeys.MODULE_STATE_DICT])
-            optimizer.load_state_dict(data[CheckpointerKeys.OPTIMIZER_STATE_DICT])
-            scheduler.load_state_dict(data[CheckpointerKeys.SCHEDULER_STATE_DICT])
+            start_epoch = _load_train_checkpoint(
+                checkpointer, checkpoint_name, module, optimizer, scheduler
+            )
             logger.info("Using checkpoint for training: %s", checkpoint_name)
         else:
             logger.warn(
@@ -331,8 +353,7 @@ def _test(
     # If we didn't train we need to load a checkpoint
     if train_config["test_only"]:
         assert checkpoint_name is not None
-        _, _, data = checkpointer.load_checkpoint(checkpoint_name)
-        module.load_state_dict(data[CheckpointerKeys.MODULE_STATE_DICT])
+        _load_test_checkpoint(checkpointer, checkpoint_name, module)
         logger.info("Using checkpoint for testing: %s", checkpoint_name)
     # Apply optimizations and begin data loop
     module = Optimizations.apply(module, optimizations, "TEST_START", locals())
