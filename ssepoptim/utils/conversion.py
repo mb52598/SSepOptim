@@ -1,5 +1,14 @@
 from types import FunctionType
-from typing import Any, Callable, Iterable, Mapping, TypeVar
+from typing import (
+    Any,
+    Callable,
+    Generator,
+    Iterable,
+    Iterator,
+    Mapping,
+    Protocol,
+    TypeVar,
+)
 
 
 def dict_any_to_str(d: dict[str, Any]) -> dict[str, str]:
@@ -15,6 +24,7 @@ def dict_any_to_str(d: dict[str, Any]) -> dict[str, str]:
 K = TypeVar("K")
 V = TypeVar("V")
 T = TypeVar("T")
+Tcov = TypeVar("Tcov", covariant=True)
 
 
 def flatten_mappings(dicts: Iterable[Mapping[K, V]]) -> dict[K, V]:
@@ -41,3 +51,29 @@ def convert_not_none(value: K | None, func: Callable[[K], V]) -> V | None:
     else:
         result = None
     return result
+
+
+def to_none(_: Any) -> None:
+    return None
+
+
+class IterableLength(Protocol[Tcov]):
+    def __len__(self) -> int: ...
+
+    def __iter__(self) -> Iterator[Tcov]: ...
+
+
+def take_percentage(
+    iterable: IterableLength[T], percentage: float
+) -> Generator[T, None, None]:
+    items_to_take = int(len(iterable) * percentage)
+    iterator = iter(iterable)
+    while True:
+        if items_to_take <= 0:
+            break
+        try:
+            item = next(iterator)
+        except StopIteration:
+            break
+        yield item
+        items_to_take -= 1

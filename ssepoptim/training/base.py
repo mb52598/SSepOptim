@@ -60,6 +60,7 @@ class ReducedTrainingConfig(BaseConfig):
     observers: list[Constructable[TrainingObserver]]
     early_stop: Optional[Constructable[EarlyStop]]
     distributed_training: bool
+    distributed_find_unused_params: bool
 
 
 class TrainingConfig(ReducedTrainingConfig):

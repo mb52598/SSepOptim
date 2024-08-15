@@ -197,7 +197,11 @@ def _train(
     rank = None
     if train_config["distributed_training"]:
         rank = get_global_rank()
-        module = DDP(module, device_ids=[device.index], find_unused_parameters=True)
+        module = DDP(
+            module,
+            device_ids=[device.index],
+            find_unused_parameters=train_config["distributed_find_unused_params"],
+        )
     # Data loop
     for epoch in range(start_epoch, train_config["epochs"] + 1):
         observers.on_training_epoch_start(locals())
@@ -272,6 +276,7 @@ def _fine_tune(
 ) -> nn.Module:
     # Setup variables
     train_dataloader = _get_dataloader(dataset.get_train(), device, seed, train_config)
+    valid_dataloader = _get_dataloader(dataset.get_valid(), device, seed, train_config)
     optimizer = model.get_optimizer(module)
     scheduler = model.get_scheduler(optimizer)
     # Apply optimizations
@@ -284,7 +289,11 @@ def _fine_tune(
     rank = None
     if train_config["distributed_training"]:
         rank = get_global_rank()
-        module = DDP(module, device_ids=[device.index], find_unused_parameters=True)
+        module = DDP(
+            module,
+            device_ids=[device.index],
+            find_unused_parameters=train_config["distributed_find_unused_params"],
+        )
     # Data loop
     for epoch in range(1, train_config["finetune_epochs"] + 1):
         observers.on_fine_tuning_epoch_start(locals())
@@ -303,7 +312,25 @@ def _fine_tune(
             train_config["clip_grad_norm"],
         )
         logger.info(
-            "Fine-Tune|Epoch %d|Time: %f s|Loss: %f", epoch, train_time, train_avg_loss
+            "Fine-Tune|Train|Epoch %d|Time: %f s|Loss: %f",
+            epoch,
+            train_time,
+            train_avg_loss,
+        )
+        #
+        valid_avg_loss, valid_time = valid_loop(valid_dataloader, module, loss, device)
+        logger.info(
+            "Fine-Tune|Valid|Epoch %d|Time: %f s|Loss: %f",
+            epoch,
+            valid_time,
+            valid_avg_loss,
+        )
+        #
+        logger.info(
+            "Fine-Tune|Epoch %d|Time: %f s|Loss: %f",
+            epoch,
+            train_time + valid_time,
+            train_avg_loss + valid_avg_loss,
         )
         #
         _scheduler_step(scheduler, train_avg_loss)

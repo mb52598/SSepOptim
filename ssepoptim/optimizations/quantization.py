@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Literal, Never, Optional, Type, cast
+from typing import Any, Literal, Never, Optional, Type
 
 import torch
 import torch.ao.quantization
@@ -16,17 +16,17 @@ from torch.ao.quantization.quantizer.xnnpack_quantizer import (
     get_symmetric_quantization_config,
 )
 from torch.export import export as torch_export
-from torch.utils.data import DataLoader
 
-from ssepoptim.dataset import SpeechSeparationDataset
 from ssepoptim.optimization import (
     Optimization,
     OptimizationConfig,
     OptimizationFactory,
     OptimizationStage,
 )
-from ssepoptim.training.base import TrainingConfig, collate_fn, sample_dataset
-from ssepoptim.utils.context_timer import CtxTimer
+from ssepoptim.optimizations.helpers.module_run import (
+    calibrate_module,
+    get_dataset_data,
+)
 from ssepoptim.utils.module_transforming import replace_module
 from ssepoptim.utils.type_checker import check_config_entries
 
@@ -38,39 +38,6 @@ class QuantizationOptimizationConfig(OptimizationConfig):
     layers: Optional[list[Type[nn.Module]]]
     dtype: Literal["qint8", "float16"]
     implementation: Literal["Eager", "FX", "P2E-x86", "P2E-XNNPack"]
-
-
-def _get_local_data(locals: dict[str, Any]):
-    dataset = cast(SpeechSeparationDataset, locals["dataset"]).get_train()
-    device = cast(torch.device, locals["device"])
-    train_config = cast(TrainingConfig, locals["train_config"])
-    return dataset, device, train_config
-
-
-def _get_dataset_data(locals: dict[str, Any]):
-    dataset, device, train_config = _get_local_data(locals)
-    return (
-        sample_dataset(dataset, batch_size=train_config["batch_size"])[0].to(device),
-    )
-
-
-def _calibrate_module(module: nn.Module, locals: dict[str, Any]):
-    logger.info("Calibrating module on a single dataset run")
-    dataset, _, train_config = _get_local_data(locals)
-    device = torch.get_default_device()
-    dataloader = DataLoader(
-        dataset,
-        batch_size=train_config["batch_size"],
-        num_workers=train_config["num_workers"],
-        collate_fn=collate_fn,
-        generator=torch.Generator(device),
-    )
-    timer = CtxTimer()
-    with torch.no_grad():
-        mix: torch.Tensor
-        for mix, _ in dataloader:
-            module(mix.to(device))
-    logger.info("Calibration done, time taken: %f", timer.total)
 
 
 def _add_quant_to_module(module: nn.Module, qconfig: quantization.QConfig):
@@ -135,7 +102,7 @@ def _get_int16_qconfig():
     return quantization.QConfig(activation=observer, weight=observer)
 
 
-class _PTQuantizationOptimization(Optimization):
+class PTQuantizationOptimization(Optimization):
     def __init__(self, config: QuantizationOptimizationConfig):
         self._config = config
         self._fine_tuned = False
@@ -150,7 +117,7 @@ class _PTQuantizationOptimization(Optimization):
         # Prepare model
         module.eval()
         # Setup quantization
-        data = _get_dataset_data(locals)
+        data = get_dataset_data(locals)
         layers = self._config["layers"] or []
         match self._config["implementation"]:
             case "Eager":
@@ -184,7 +151,9 @@ class _PTQuantizationOptimization(Optimization):
                     )
                 prepared_module = quantize_pt2e.prepare_pt2e(graph, quantizer)
         # Calibrate the module
-        _calibrate_module(prepared_module, locals)
+        logger.info("Calibrating module on a single dataset run")
+        time_taken = calibrate_module(prepared_module, locals)
+        logger.info("Calibration done, time taken: %f", time_taken)
         # Apply quantization
         match self._config["implementation"]:
             case "Eager":
@@ -205,7 +174,7 @@ class _PTQuantizationOptimization(Optimization):
         return not self._fine_tuned
 
 
-class _PTDQuantizationOptimization(Optimization):
+class PTDQuantizationOptimization(Optimization):
     def __init__(self, config: QuantizationOptimizationConfig):
         self._config = config
 
@@ -214,7 +183,7 @@ class _PTDQuantizationOptimization(Optimization):
     ) -> nn.Module:
         if stage != "FINETUNE_START":
             return module
-        data = _get_dataset_data(locals)
+        data = get_dataset_data(locals)
         layers = self._config["layers"] or []
         match self._config["implementation"]:
             case "Eager":
@@ -240,7 +209,7 @@ class _PTDQuantizationOptimization(Optimization):
         return False
 
 
-class _QuantizationATOptimization(Optimization):
+class QuantizationATOptimization(Optimization):
     def __init__(self, config: QuantizationOptimizationConfig):
         self._config = config
 
@@ -265,7 +234,7 @@ class _QuantizationATOptimization(Optimization):
                 quantization.prepare_qat(module, inplace=True)
                 prepared_module = module
             case "FX":
-                data = _get_dataset_data(locals)
+                data = get_dataset_data(locals)
                 mapping = quantization.get_default_qat_qconfig_mapping()
                 prepared_module = quantize_fx.prepare_qat_fx(
                     module,
@@ -303,23 +272,14 @@ class _QuantizationATOptimization(Optimization):
         return False
 
 
-class QuantizationOptimization(Optimization):
-    def __init__(self, config: QuantizationOptimizationConfig):
-        match config["method"]:
-            case "PTQ":
-                self._optimization = _PTQuantizationOptimization(config)
-            case "PTDQ":
-                self._optimization = _PTDQuantizationOptimization(config)
-            case "QAT":
-                self._optimization = _QuantizationATOptimization(config)
-
-    def apply(
-        self, module: nn.Module, stage: OptimizationStage, locals: dict[str, Any]
-    ) -> nn.Module:
-        return self._optimization.apply(module, stage, locals)
-
-    def requiresFinetune(self) -> bool:
-        return self._optimization.requiresFinetune()
+def get_quantization_object(config: QuantizationOptimizationConfig):
+    match config["method"]:
+        case "PTQ":
+            return PTQuantizationOptimization(config)
+        case "PTDQ":
+            return PTDQuantizationOptimization(config)
+        case "QAT":
+            return QuantizationATOptimization(config)
 
 
 class QuantizationOptimizationFactory(OptimizationFactory):
@@ -329,6 +289,6 @@ class QuantizationOptimizationFactory(OptimizationFactory):
 
     @staticmethod
     def _get_object(config: OptimizationConfig):
-        return QuantizationOptimization(
+        return get_quantization_object(
             check_config_entries(config, QuantizationOptimizationConfig)
         )
