@@ -10,25 +10,7 @@ import torch
 import torch.nn as nn
 
 
-def _shape_reconstructed(
-    reconstructed: torch.Tensor, size: torch.Tensor
-) -> torch.Tensor:
-    """Reshape `reconstructed` to have same size as `size`
-
-    Args:
-        reconstructed (torch.Tensor): Reconstructed waveform
-        size (torch.Tensor): Size of desired waveform
-
-    Returns:
-        torch.Tensor: Reshaped waveform
-
-    """
-    if len(size) == 1:
-        return reconstructed.squeeze(0)
-    return reconstructed
-
-
-def pad_x_to_y(x: torch.Tensor, y: torch.Tensor, axis: int = -1) -> torch.Tensor:
+def pad_x_to_y(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     """Right-pad or right-trim first argument to have same size as second argument
 
     Args:
@@ -39,37 +21,9 @@ def pad_x_to_y(x: torch.Tensor, y: torch.Tensor, axis: int = -1) -> torch.Tensor
     Returns:
         torch.Tensor, `x` padded to match `y`'s shape.
     """
-    if axis != -1:
-        raise NotImplementedError
-    inp_len = y.shape[axis]
-    output_len = x.shape[axis]
+    inp_len = y.shape[-1]
+    output_len = x.shape[-1]
     return nn.functional.pad(x, [0, inp_len - output_len])
-
-
-def jitable_shape(tensor: torch.Tensor) -> torch.Tensor:
-    """Gets shape of ``tensor`` as ``torch.Tensor`` type for jit compiler
-
-    .. note::
-        Returning ``tensor.shape`` of ``tensor.size()`` directly is not torchscript
-        compatible as return type would not be supported.
-
-    Args:
-        tensor (torch.Tensor): Tensor
-
-    Returns:
-        torch.Tensor: Shape of ``tensor``
-    """
-    return torch.tensor(tensor.shape)
-
-
-def _unsqueeze_to_3d(x: torch.Tensor) -> torch.Tensor:
-    """Normalize shape of `x` to [batch, n_chan, time]."""
-    if x.ndim == 1:
-        return x.reshape(1, 1, -1)
-    elif x.ndim == 2:
-        return x.unsqueeze(1)
-    else:
-        return x
 
 
 def has_arg(fn: Any, name: str):
@@ -616,11 +570,6 @@ class BaseEncoderMaskerDecoder(nn.Module):
         Returns:
             torch.Tensor, of shape (batch, n_src, time) or (n_src, time).
         """
-        # Remember shape to shape reconstruction, cast to Tensor for torchscript
-        shape = jitable_shape(wav)
-        # Reshape to (batch, n_mix, time)
-        wav = _unsqueeze_to_3d(wav)
-
         # Real forward
         tf_rep = self.forward_encoder(wav)
         est_masks = self.forward_masker(tf_rep)
@@ -628,7 +577,7 @@ class BaseEncoderMaskerDecoder(nn.Module):
         decoded = self.forward_decoder(masked_tf_rep)
 
         reconstructed = pad_x_to_y(decoded, wav)
-        return _shape_reconstructed(reconstructed, shape)
+        return reconstructed
 
     def forward_encoder(self, wav: torch.Tensor) -> torch.Tensor:
         """Computes time-frequency representation of `wav`.
@@ -893,8 +842,7 @@ class Conv1DBlock(nn.Module):
             conv_norm(hid_chan),
         )
         self.res_conv = nn.Conv1d(hid_chan, in_chan, 1)
-        if skip_out_chan:
-            self.skip_conv = nn.Conv1d(hid_chan, skip_out_chan, 1)
+        self.skip_conv = nn.Conv1d(hid_chan, skip_out_chan, 1)
 
     def forward(
         self, x: torch.Tensor
@@ -902,8 +850,6 @@ class Conv1DBlock(nn.Module):
         r"""Input shape $(batch, feats, seq)$."""
         shared_out = self.shared_block(x)
         res_out = self.res_conv(shared_out)
-        if not self.skip_out_chan:
-            return res_out
         skip_out = self.skip_conv(shared_out)
         return res_out, skip_out
 
@@ -992,7 +938,7 @@ class TDConvNet(nn.Module):
                         causal=causal,
                     )
                 )
-        mask_conv_inp = skip_chan if skip_chan else bn_chan
+        mask_conv_inp = skip_chan
         mask_conv = nn.Conv1d(mask_conv_inp, n_src * out_chan, 1)
         self.mask_net = nn.Sequential(nn.PReLU(), mask_conv)
         # Get activation function.
@@ -1018,14 +964,11 @@ class TDConvNet(nn.Module):
         for layer in self.TCN:
             # Common to w. skip and w.o skip architectures
             tcn_out = layer(output)
-            if self.skip_chan:
-                residual, skip = tcn_out
-                skip_connection = skip_connection + skip
-            else:
-                residual = tcn_out
+            residual, skip = tcn_out
+            skip_connection = skip_connection + skip
             output = output + residual
         # Use residual output when no skip connection
-        mask_inp = skip_connection if self.skip_chan else output
+        mask_inp = skip_connection
         score: torch.Tensor = self.mask_net(mask_inp)
         score = score.view(batch, self.n_src, self.out_chan, n_frames)
         est_mask = self.output_act(score)
