@@ -87,7 +87,7 @@ def train_loop(
         target = target.to(device)
         separation = module(mix)
         separation_loss = torch.mean(loss(separation, target))
-        train_loss_sum += separation_loss
+        train_loss_sum += separation_loss.detach()
         optimizer.zero_grad(set_to_none=True)
         separation_loss.backward()
         if clip_grad_norm is not None:
