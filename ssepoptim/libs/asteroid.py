@@ -3,8 +3,7 @@
 # Original repo: https://github.com/asteroid-team/asteroid
 import inspect
 import math
-import warnings
-from typing import Any, Optional, Type
+from typing import Any, cast, Optional, Type
 
 import torch
 import torch.nn as nn
@@ -441,14 +440,11 @@ class DPTransformer(nn.Module):
 
         self.mha_in_dim = math.ceil(self.in_chan / self.n_heads) * self.n_heads
         if self.in_chan % self.n_heads != 0:
-            warnings.warn(
+            raise RuntimeError(
                 f"DPTransformer input dim ({self.in_chan}) is not a multiple of the number of "
                 f"heads ({self.n_heads}). Adding extra linear layer at input to accomodate "
                 f"(size [{self.in_chan} x {self.mha_in_dim}])"
             )
-            self.input_layer = nn.Linear(self.in_chan, self.mha_in_dim)
-        else:
-            self.input_layer = None
 
         self.in_norm = norm_type(self.mha_in_dim)
         self.ola = DualPathProcessing(self.chunk_size, self.hop_size)
@@ -507,8 +503,6 @@ class DPTransformer(nn.Module):
         Returns:
             :class:`torch.Tensor`: estimated mask of shape $(batch, nsrc, nfilters, nframes)$
         """
-        if self.input_layer is not None:
-            mixture_w = self.input_layer(mixture_w.transpose(1, 2)).transpose(1, 2)
         mixture_w = self.in_norm(mixture_w)  # [batch, bn_chan, n_frames]
         n_orig_frames = mixture_w.shape[-1]
 
@@ -517,8 +511,7 @@ class DPTransformer(nn.Module):
 
         for layer_idx in range(len(self.layers)):
             module_list = self.layers[layer_idx]
-            assert type(module_list) is nn.ModuleList
-            intra, inter = module_list
+            intra, inter = cast(nn.ModuleList, module_list)
             mixture_w = self.ola.intra_process(mixture_w, intra)
             mixture_w = self.ola.inter_process(mixture_w, inter)
 
