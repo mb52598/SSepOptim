@@ -221,6 +221,8 @@ def _train(
         )
         logger.info("Train|Time: %f s|Loss: %f", train_time, train_avg_loss)
         #
+        observers.on_training_epoch_validation(locals())
+        #
         valid_avg_loss, valid_time = valid_loop(valid_dataloader, module, loss, device)
         logger.info("Valid|Time: %f s|Loss: %f", valid_time, valid_avg_loss)
         #
@@ -317,6 +319,8 @@ def _fine_tune(
             train_time,
             train_avg_loss,
         )
+        #
+        observers.on_fine_tuning_epoch_validation(locals())
         #
         valid_avg_loss, valid_time = valid_loop(valid_dataloader, module, loss, device)
         logger.info(

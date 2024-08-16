@@ -20,6 +20,9 @@ class TrainingObserver(metaclass=ABCMeta):
     def on_training_epoch_start(self, locals: dict[str, Any]):
         pass
 
+    def on_training_epoch_validation(self, locals: dict[str, Any]):
+        pass
+
     def on_training_epoch_end(self, locals: dict[str, Any]):
         pass
 
@@ -30,6 +33,9 @@ class TrainingObserver(metaclass=ABCMeta):
         pass
 
     def on_fine_tuning_epoch_start(self, locals: dict[str, Any]):
+        pass
+
+    def on_fine_tuning_epoch_validation(self, locals: dict[str, Any]):
         pass
 
     def on_fine_tuning_epoch_end(self, locals: dict[str, Any]):
@@ -65,6 +71,10 @@ class TrainingObservers(metaclass=ABCMeta):
     def on_training_epoch_start(self, locals: dict[str, Any]):
         for observer in self._observers:
             observer.on_training_epoch_start(locals)
+    
+    def on_training_epoch_validation(self, locals: dict[str, Any]):
+        for observer in self._observers:
+            observer.on_training_epoch_validation(locals)
 
     def on_training_epoch_end(self, locals: dict[str, Any]):
         for observer in self._observers:
@@ -81,6 +91,10 @@ class TrainingObservers(metaclass=ABCMeta):
     def on_fine_tuning_epoch_start(self, locals: dict[str, Any]):
         for observer in self._observers:
             observer.on_fine_tuning_epoch_start(locals)
+
+    def on_fine_tuning_epoch_validation(self, locals: dict[str, Any]):
+        for observer in self._observers:
+            observer.on_fine_tuning_epoch_validation(locals)
 
     def on_fine_tuning_epoch_end(self, locals: dict[str, Any]):
         for observer in self._observers:

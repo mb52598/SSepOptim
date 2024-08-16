@@ -29,16 +29,33 @@ class CudaRecordMemoryHistoryObserver(TrainingObserver):
             return
         torch.cuda.memory._record_memory_history(max_entries=100_000)
 
+    def on_training_epoch_validation(self, locals: dict[str, Any]):
+        if not self._is_primary_cuda_device(locals):
+            return
+        epoch: int = locals["epoch"]
+        torch.cuda.memory._dump_snapshot(
+            f"{self._name}_train_epoch_{epoch}_valid.pickle"
+        )
+
     def on_training_epoch_end(self, locals: dict[str, Any]):
         if not self._is_primary_cuda_device(locals):
             return
         epoch: int = locals["epoch"]
-        torch.cuda.memory._dump_snapshot(f"{self._name}_train_epoch{epoch}.pickle")
+        torch.cuda.memory._dump_snapshot(f"{self._name}_train_epoch_{epoch}.pickle")
 
-    def on_fine_tuning_end(self, locals: dict[str, Any]):
+    def on_fine_tuning_epoch_validation(self, locals: dict[str, Any]):
         if not self._is_primary_cuda_device(locals):
             return
-        torch.cuda.memory._dump_snapshot(f"{self._name}_finetune.pickle")
+        epoch: int = locals["epoch"]
+        torch.cuda.memory._dump_snapshot(
+            f"{self._name}_finetune_epoch_{epoch}_valid.pickle"
+        )
+
+    def on_fine_tuning_epoch_end(self, locals: dict[str, Any]):
+        if not self._is_primary_cuda_device(locals):
+            return
+        epoch: int = locals["epoch"]
+        torch.cuda.memory._dump_snapshot(f"{self._name}_finetune_epoch_{epoch}.pickle")
 
     def on_testing_end(self, locals: dict[str, Any]):
         if not self._is_primary_cuda_device(locals):
