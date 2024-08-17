@@ -48,7 +48,7 @@ def tucker_hooi(x: torch.Tensor, ranks: list[int], iters: int):
 def ptucker_estimate_ranks(
     weight_shape: tuple[int, ...],
     keep_percentage: float,
-    round_fn: Callable[[float], int] = math.floor,
+    round_fn: Callable[[float], int] = math.ceil,
 ):
     # total_estimated_values / total_noestimated_values = keep_percentage, with r1/s1 = r2/s2
     if len(weight_shape) < 2:
@@ -65,3 +65,17 @@ def ptucker_estimate_ranks(
     R2 = round_fn((R1 * weight_shape[1]) / weight_shape[0])
 
     return R1, R2
+
+
+def ptucker_number_of_parameters(
+    weight_shape: tuple[int, ...], ranks: tuple[int, int]
+) -> int:
+    if len(weight_shape) < 2:
+        raise RuntimeError(
+            "Partial tucker number of parameters needs weight of atleast two dimensions"
+        )
+    return (
+        weight_shape[0] * ranks[0]
+        + weight_shape[1] * ranks[1]
+        + chain_two_values([*ranks, *weight_shape[2:]], lambda x, y: x * y)
+    )

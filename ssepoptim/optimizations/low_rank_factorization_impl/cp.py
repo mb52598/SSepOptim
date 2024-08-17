@@ -30,7 +30,7 @@ def cp_als(x: torch.Tensor, rank: int, iters: int) -> list[torch.Tensor]:
 def cp_estimate_rank(
     weight_shape: tuple[int, ...],
     keep_percentage: float,
-    round_fn: Callable[[float], int] = math.floor,
+    round_fn: Callable[[float], int] = math.ceil,
 ):
     # total_estimated_values / total_noestimated_values = keep_percentage
     if len(weight_shape) < 1:
@@ -45,3 +45,7 @@ def cp_estimate_rank(
             / chain_two_values(weight_shape, lambda x, y: x + y)
         )
     )
+
+
+def cp_number_of_parameters(weight_shape: tuple[int, ...], rank: int) -> int:
+    return sum(s * rank for s in weight_shape)

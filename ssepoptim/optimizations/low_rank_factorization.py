@@ -9,7 +9,10 @@ from ssepoptim.optimization import (
     OptimizationFactory,
     OptimizationStage,
 )
-from ssepoptim.optimizations.low_rank_factorization_impl.cp import cp_estimate_rank
+from ssepoptim.optimizations.low_rank_factorization_impl.cp import (
+    cp_estimate_rank,
+    cp_number_of_parameters,
+)
 from ssepoptim.optimizations.low_rank_factorization_impl.cp_conv import (
     cp_conv_1d,
     cp_conv_2d,
@@ -18,11 +21,13 @@ from ssepoptim.optimizations.low_rank_factorization_impl.cp_conv import (
 )
 from ssepoptim.optimizations.low_rank_factorization_impl.tucker import (
     ptucker_estimate_ranks,
+    ptucker_number_of_parameters,
 )
 from ssepoptim.optimizations.low_rank_factorization_impl.tucker_conv import (
     ptucker_conv,
     ptucker_conv_transpose,
 )
+from ssepoptim.utils.chaining import chain_two_values
 from ssepoptim.utils.module_transforming import replace_module
 from ssepoptim.utils.type_checker import check_config_entries
 
@@ -49,7 +54,14 @@ def _cp_conv(
             func = cp_conv_transpose_2d
         case _:
             raise RuntimeError(f"Unsupported layer type {layer_type.__name__}")
-    rank = cp_estimate_rank(layer.weight.shape, config["keep_percentage"])
+    shape = layer.weight.shape
+    rank = cp_estimate_rank(shape, config["keep_percentage"])
+    # If our decomposition has more parameters, then just use the initial layer
+    if cp_number_of_parameters(shape, rank) >= chain_two_values(
+        shape, lambda x, y: x * y
+    ):
+        return layer
+    # Otherwise return decomposition
     return func(cast(Any, layer), rank, config["num_iters"])
 
 
@@ -71,7 +83,14 @@ def _ptucker_conv(
             func = ptucker_conv_transpose
         case _:
             raise RuntimeError(f"Unsupported layer type {layer_type.__name__}")
-    ranks = ptucker_estimate_ranks(layer.weight.shape, config["keep_percentage"])
+    shape = layer.weight.shape
+    ranks = ptucker_estimate_ranks(shape, config["keep_percentage"])
+    # If our decomposition has more parameters, then just use the initial layer
+    if ptucker_number_of_parameters(shape, ranks) >= chain_two_values(
+        shape, lambda x, y: x * y
+    ):
+        return layer
+    # Otherwise return decomposition
     return func(cast(Any, layer), ranks, config["num_iters"], method)
 
 
