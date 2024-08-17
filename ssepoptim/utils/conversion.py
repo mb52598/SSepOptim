@@ -57,6 +57,19 @@ def to_none(_: Any) -> None:
     return None
 
 
+def take(iterable: Iterable[T], n: int) -> Generator[T, None, None]:
+    iterator = iter(iterable)
+    while True:
+        if n <= 0:
+            break
+        try:
+            item = next(iterator)
+        except StopIteration:
+            break
+        yield item
+        n -= 1
+
+
 class IterableLength(Protocol[Tcov]):
     def __len__(self) -> int: ...
 
@@ -67,13 +80,4 @@ def take_percentage(
     iterable: IterableLength[T], percentage: float
 ) -> Generator[T, None, None]:
     items_to_take = int(len(iterable) * percentage)
-    iterator = iter(iterable)
-    while True:
-        if items_to_take <= 0:
-            break
-        try:
-            item = next(iterator)
-        except StopIteration:
-            break
-        yield item
-        items_to_take -= 1
+    return take(iterable, items_to_take)

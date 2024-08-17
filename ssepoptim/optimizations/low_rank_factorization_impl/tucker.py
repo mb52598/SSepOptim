@@ -35,7 +35,7 @@ def tucker_hosvd(
 def tucker_hooi(x: torch.Tensor, ranks: list[int], iters: int):
     matrices = init_matrices(x, ranks)
     for _ in range(iters):
-        for i in range(x.dim()):
+        for i, rank in enumerate(ranks):
             y = n_mode_multiply_without(x, matrices, i)
-            matrices[i] = leading_left_singular_vectors(y, i, ranks[i])
+            matrices[i] = leading_left_singular_vectors(y, i, rank)
     return n_mode_multiply(x, matrices), matrices

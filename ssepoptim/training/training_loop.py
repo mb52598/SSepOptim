@@ -217,6 +217,7 @@ def _train(
             loss,
             optimizer,
             device,
+            train_config["gradient_accumulation_steps"],
             train_config["clip_grad_norm"],
         )
         logger.info("Train|Time: %f s|Loss: %f", train_time, train_avg_loss)
@@ -311,6 +312,7 @@ def _fine_tune(
             loss,
             optimizer,
             device,
+            train_config["gradient_accumulation_steps"],
             train_config["clip_grad_norm"],
         )
         logger.info(

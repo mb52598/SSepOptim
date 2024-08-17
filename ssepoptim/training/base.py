@@ -44,6 +44,7 @@ class ReducedTrainingConfig(BaseConfig):
     epochs: int
     finetune_epochs: int
     batch_size: int
+    gradient_accumulation_steps: int
     clip_grad_norm: Optional[float]
     shuffle: bool
     num_workers: int
@@ -75,6 +76,7 @@ def train_loop(
     loss: loss.Loss,
     optimizer: optim.Optimizer,
     device: Optional[torch.device],
+    gradient_accumulation_steps: int,
     clip_grad_norm: Optional[float],
 ):
     module.train()
@@ -82,17 +84,21 @@ def train_loop(
     timer = CtxTimer()
     mix: torch.Tensor
     target: torch.Tensor
-    for mix, target in train_dataloader:
+    optimizer.zero_grad(set_to_none=True)
+    for i, (mix, target) in enumerate(train_dataloader, start=1):
         mix = mix.to(device)
         target = target.to(device)
         separation = module(mix)
-        separation_loss = torch.mean(loss(separation, target))
-        train_loss_sum += separation_loss.detach()
-        optimizer.zero_grad(set_to_none=True)
+        separation_loss = (
+            torch.mean(loss(separation, target)) / gradient_accumulation_steps
+        )
         separation_loss.backward()
+        train_loss_sum += separation_loss.detach() * gradient_accumulation_steps
         if clip_grad_norm is not None:
             nn.utils.clip_grad_norm_(module.parameters(), clip_grad_norm)
-        optimizer.step()
+        if i % gradient_accumulation_steps == 0:
+            optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
     train_avg_loss = train_loss_sum.item() / len(train_dataloader)
     return train_avg_loss, timer.total
 
