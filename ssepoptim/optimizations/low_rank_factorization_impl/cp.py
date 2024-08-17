@@ -1,3 +1,6 @@
+import math
+from typing import Callable
+
 import torch
 
 from ssepoptim.optimizations.low_rank_factorization_impl.base import init_matrices
@@ -22,3 +25,23 @@ def cp_als(x: torch.Tensor, rank: int, iters: int) -> list[torch.Tensor]:
                 @ v.pinverse()
             )
     return matrices
+
+
+def cp_estimate_rank(
+    weight_shape: tuple[int, ...],
+    keep_percentage: float,
+    round_fn: Callable[[float], int] = math.floor,
+):
+    # total_estimated_values / total_noestimated_values = keep_percentage
+    if len(weight_shape) < 1:
+        raise RuntimeError(
+            "Partial tucker rank estimation needs weight of atleast one dimension"
+        )
+
+    return round_fn(
+        keep_percentage
+        * (
+            chain_two_values(weight_shape, lambda x, y: x * y)
+            / chain_two_values(weight_shape, lambda x, y: x + y)
+        )
+    )

@@ -10,12 +10,13 @@ from ssepoptim.dataset import (
     SpeechSeparationDatasetFactory,
     SpeechSeparationDatasetType,
 )
-from ssepoptim.datasets.utils.csv_dataset import CsvAudioDataset
+from ssepoptim.datasets.utils.csv_dataset import SplitCsvAudioDataset
 from ssepoptim.utils.type_checker import check_config_entries
 
 
 class Aishell1MixDatasetConfig(SpeechSeparationDatasetConfig):
     path: str
+    num_frames_per_datapoint: int
 
 
 class Aishell1MixDataset(SpeechSeparationDataset):
@@ -38,10 +39,11 @@ class Aishell1MixDataset(SpeechSeparationDataset):
                 csv_path = os.path.join(metadata_path, "mixture_dev_mix_both.csv")
             case "tt":
                 csv_path = os.path.join(metadata_path, "mixture_test_mix_both.csv")
-        return CsvAudioDataset(
+        return SplitCsvAudioDataset(
             csv_path,
             "mixture_path",
             ["source_1_path", "source_2_path"],
+            self._config["num_frames_per_datapoint"],
         )
 
     def get_train(self) -> SpeechSeparationDatasetType:

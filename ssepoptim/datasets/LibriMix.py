@@ -14,12 +14,13 @@ from ssepoptim.dataset import (
     SpeechSeparationDatasetFactory,
     SpeechSeparationDatasetType,
 )
-from ssepoptim.datasets.utils.csv_dataset import CsvAudioDataset
+from ssepoptim.datasets.utils.csv_dataset import SplitCsvAudioDataset
 from ssepoptim.utils.type_checker import check_config_entries
 
 
 class LibriMixDatasetConfig(SpeechSeparationDatasetConfig):
     path: str
+    num_frames_per_datapoint: int
 
 
 class LibriMixDataset(SpeechSeparationDataset):
@@ -43,10 +44,11 @@ class LibriMixDataset(SpeechSeparationDataset):
         return cast(
             LenDataset[tuple[torch.Tensor, torch.Tensor]],
             ConcatDataset(
-                CsvAudioDataset(
+                SplitCsvAudioDataset(
                     csv_path,
                     "mixture_path",
                     ["source_1_path", "source_2_path"],
+                    self._config["num_frames_per_datapoint"],
                 )
                 for csv_path in csv_paths
             ),

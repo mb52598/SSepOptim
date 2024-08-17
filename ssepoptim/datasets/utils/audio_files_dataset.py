@@ -1,10 +1,8 @@
-import math
-
 import torch
 import torchaudio
 
 from ssepoptim.dataset import LenDataset
-from ssepoptim.utils.conversion import flatten
+from ssepoptim.datasets.utils.split_data import split_dataset_frames_idx_size
 
 
 def _check_dataset(files: list[tuple[str, str]], expected_sampling_rate: int):
@@ -23,22 +21,6 @@ def _check_dataset(files: list[tuple[str, str]], expected_sampling_rate: int):
             raise RuntimeError(
                 f"Number of frames mismatch: {input_info.num_frames} and {output_info.num_frames}"
             )
-
-
-def _split_dataset_frames(
-    files: list[tuple[str, str]], num_frames_per_datapoint: int
-) -> list[list[tuple[int, int]]]:
-    frames_start_length: list[list[tuple[int, int]]] = []
-    for input_file, _ in files:
-        input_info = torchaudio.info(input_file)
-        datapoints = math.ceil(input_info.num_frames / num_frames_per_datapoint)
-        start_length: list[tuple[int, int]] = []
-        start = 0
-        for _ in range(datapoints):
-            start_length.append((start, num_frames_per_datapoint))
-            start += num_frames_per_datapoint
-        frames_start_length.append(start_length)
-    return frames_start_length
 
 
 class AudioFilesDataset(LenDataset[tuple[torch.Tensor, torch.Tensor]]):
@@ -69,15 +51,11 @@ class SplitAudioFilesDataset(LenDataset[tuple[torch.Tensor, torch.Tensor]]):
     ):
         self._files = files
         # _check_dataset(files, expected_sampling_rate)
-        frames_start_length = _split_dataset_frames(files, num_frames_per_datapoint)
-        frames_file_idx: list[int] = []
-        total_datapoints = 0
-        for i, lst in enumerate(frames_start_length):
-            frames_file_idx.extend([i] * len(lst))
-            total_datapoints += len(lst)
-        self._frames_start_length = flatten(frames_start_length)
-        self._frames_file_idx = frames_file_idx
-        self._total_datapoints = total_datapoints
+        self._frames_start_length, self._frames_file_idx, self._total_datapoints = (
+            split_dataset_frames_idx_size(
+                [file[0] for file in files], num_frames_per_datapoint
+            )
+        )
 
     def __len__(self) -> int:
         return self._total_datapoints
