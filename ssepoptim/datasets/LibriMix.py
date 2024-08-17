@@ -2,7 +2,7 @@ import os
 import shutil
 import subprocess
 import sys
-from typing import Literal, cast
+from typing import Literal, Optional, cast
 
 import torch
 from torch.utils.data import ConcatDataset
@@ -14,13 +14,13 @@ from ssepoptim.dataset import (
     SpeechSeparationDatasetFactory,
     SpeechSeparationDatasetType,
 )
-from ssepoptim.datasets.utils.csv_dataset import SplitCsvAudioDataset
+from ssepoptim.datasets.utils.csv_dataset import CsvAudioDataset, SplitCsvAudioDataset
 from ssepoptim.utils.type_checker import check_config_entries
 
 
 class LibriMixDatasetConfig(SpeechSeparationDatasetConfig):
     path: str
-    num_frames_per_datapoint: int
+    num_frames_per_datapoint: Optional[int]
 
 
 class LibriMixDataset(SpeechSeparationDataset):
@@ -41,17 +41,25 @@ class LibriMixDataset(SpeechSeparationDataset):
                 csv_paths = [os.path.join(metadata_path, "mixture_dev_mix_both.csv")]
             case "tt":
                 csv_paths = [os.path.join(metadata_path, "mixture_test_mix_both.csv")]
-        return cast(
-            LenDataset[tuple[torch.Tensor, torch.Tensor]],
-            ConcatDataset(
-                SplitCsvAudioDataset(
+
+        def _create_dataset(csv_path: str):
+            if self._config["num_frames_per_datapoint"] is None:
+                return CsvAudioDataset(
+                    csv_path,
+                    "mixture_path",
+                    ["source_1_path", "source_2_path"],
+                )
+            else:
+                return SplitCsvAudioDataset(
                     csv_path,
                     "mixture_path",
                     ["source_1_path", "source_2_path"],
                     self._config["num_frames_per_datapoint"],
                 )
-                for csv_path in csv_paths
-            ),
+
+        return cast(
+            LenDataset[tuple[torch.Tensor, torch.Tensor]],
+            ConcatDataset(_create_dataset(csv_path) for csv_path in csv_paths),
         )
 
     def get_train(self) -> SpeechSeparationDatasetType:

@@ -2,7 +2,7 @@ import os
 import shutil
 import subprocess
 import sys
-from typing import Literal
+from typing import Literal, Optional
 
 from ssepoptim.dataset import (
     SpeechSeparationDataset,
@@ -10,13 +10,13 @@ from ssepoptim.dataset import (
     SpeechSeparationDatasetFactory,
     SpeechSeparationDatasetType,
 )
-from ssepoptim.datasets.utils.csv_dataset import SplitCsvAudioDataset
+from ssepoptim.datasets.utils.csv_dataset import CsvAudioDataset, SplitCsvAudioDataset
 from ssepoptim.utils.type_checker import check_config_entries
 
 
 class Aishell1MixDatasetConfig(SpeechSeparationDatasetConfig):
     path: str
-    num_frames_per_datapoint: int
+    num_frames_per_datapoint: Optional[int]
 
 
 class Aishell1MixDataset(SpeechSeparationDataset):
@@ -39,12 +39,19 @@ class Aishell1MixDataset(SpeechSeparationDataset):
                 csv_path = os.path.join(metadata_path, "mixture_dev_mix_both.csv")
             case "tt":
                 csv_path = os.path.join(metadata_path, "mixture_test_mix_both.csv")
-        return SplitCsvAudioDataset(
-            csv_path,
-            "mixture_path",
-            ["source_1_path", "source_2_path"],
-            self._config["num_frames_per_datapoint"],
-        )
+        if self._config["num_frames_per_datapoint"] is None:
+            return CsvAudioDataset(
+                csv_path,
+                "mixture_path",
+                ["source_1_path", "source_2_path"],
+            )
+        else:
+            return SplitCsvAudioDataset(
+                csv_path,
+                "mixture_path",
+                ["source_1_path", "source_2_path"],
+                self._config["num_frames_per_datapoint"],
+            )
 
     def get_train(self) -> SpeechSeparationDatasetType:
         return self._get("tr")
