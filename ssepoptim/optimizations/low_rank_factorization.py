@@ -36,6 +36,7 @@ class LowRankFactorizationOptimizationConfig(OptimizationConfig):
     method: Literal["CP", "Tucker-HOSVD", "Tucker-HOOI"]
     keep_percentage: float
     num_iters: int
+    apply_only_once: bool
 
 
 def _cp_conv(
@@ -127,6 +128,8 @@ class LowRankFactorizationOptimization(Optimization):
         self, module: nn.Module, stage: OptimizationStage, locals: dict[str, Any]
     ) -> nn.Module:
         if stage != "FINETUNE_START":
+            return module
+        if self._finetune_done and self._config["apply_only_once"]:
             return module
         # Replace convolutional layers based on method
         for layer, function in self._method_mapping[self._config["method"]].items():

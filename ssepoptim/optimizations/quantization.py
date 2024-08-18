@@ -112,6 +112,8 @@ class PTQuantizationOptimization(Optimization):
     ) -> nn.Module:
         if stage != "FINETUNE_START":
             return module
+        if self._fine_tuned:
+            return module
         # Save state
         training = module.training
         # Prepare model
@@ -177,12 +179,17 @@ class PTQuantizationOptimization(Optimization):
 class PTDQuantizationOptimization(Optimization):
     def __init__(self, config: QuantizationOptimizationConfig):
         self._config = config
+        self._quantized = False
 
     def apply(
         self, module: nn.Module, stage: OptimizationStage, locals: dict[str, Any]
     ) -> nn.Module:
         if stage != "FINETUNE_START":
             return module
+        if self._quantized:
+            return module
+        self._quantized = True
+        # Get data
         data = get_dataset_data(locals)
         layers = self._config["layers"] or []
         match self._config["implementation"]:
@@ -212,11 +219,12 @@ class PTDQuantizationOptimization(Optimization):
 class QuantizationATOptimization(Optimization):
     def __init__(self, config: QuantizationOptimizationConfig):
         self._config = config
+        self._quantized = False
 
     def _p2e_not_supported(self) -> Never:
         raise RuntimeError("P2E does not support Quantization Aware Training")
 
-    def _apply_finetune_start(
+    def _apply_training_start(
         self, module: nn.Module, locals: dict[str, Any]
     ) -> nn.Module:
         layers = self._config["layers"] or []
@@ -245,7 +253,7 @@ class QuantizationATOptimization(Optimization):
                 self._p2e_not_supported()
         return prepared_module
 
-    def _apply_finetune_end(self, module: nn.Module) -> nn.Module:
+    def _apply_training_end(self, module: nn.Module) -> nn.Module:
         match self._config["implementation"]:
             case "Eager":
                 quantization.convert(module, inplace=True)
@@ -259,11 +267,14 @@ class QuantizationATOptimization(Optimization):
     def apply(
         self, module: nn.Module, stage: OptimizationStage, locals: dict[str, Any]
     ) -> nn.Module:
+        if self._quantized:
+            return module
         match stage:
             case "TRAIN_START":
-                quantized_module = self._apply_finetune_start(module, locals)
+                quantized_module = self._apply_training_start(module, locals)
+                self._quantized = True
             case "TRAIN_END":
-                quantized_module = self._apply_finetune_end(module)
+                quantized_module = self._apply_training_end(module)
             case _:
                 quantized_module = module
         return quantized_module
