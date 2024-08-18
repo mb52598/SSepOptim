@@ -24,8 +24,9 @@ def main():
     args = cast(Arguments, parser.parse_args())
     if os.path.isdir(args.config_path):
         config_paths = [
-            os.path.join(args.config_path, config)
-            for config in os.listdir(args.config_path)
+            os.path.join(root, file)
+            for root, _, files in os.walk(args.config_path)
+            for file in files
         ]
     else:
         config_paths = [args.config_path]
