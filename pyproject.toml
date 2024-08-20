@@ -1,0 +1,42 @@
+[project]
+name = "ssepoptim"
+description = ""
+version = "0.0.1"
+license = {file = "LICENSE"}
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "torch>=2.3.1",
+    "torchaudio>=2.3.1",
+    "fast-bss-eval>=0.1.4",
+    "pandas>=2.2.2",
+]
+classifiers = [
+    "Environment :: Console",
+    "Operating System :: OS Independent",
+    "Programming Language :: Cython",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering",
+    "License :: OSI Approved :: MIT License",
+]
+
+[project.optional-dependencies]
+install = [
+    "tqdm>=4.66.4",
+    "pysndfx>=0.3.6",
+    "soundfile>=0.12.1",
+    "numpy>=1.26.3",
+    "scipy>=1.13.1",
+    "requests>=2.32.3",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ssepoptim*"]
+exclude = ["ssepoptim.tests*"]
+namespaces = false
