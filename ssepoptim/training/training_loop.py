@@ -13,9 +13,9 @@ import ssepoptim.loss as loss
 from ssepoptim.base.checkpointing import Checkpointer
 from ssepoptim.dataset import (
     LenDataset,
-    SpeechSeparationDataset,
     SpeechSeparationDatasetConfig,
     SpeechSeparationDatasetFactory,
+    SpeechSeparationDatasetType,
 )
 from ssepoptim.metrics.pit import PermutationInvariantMetric
 from ssepoptim.model import Model, ModelConfig, ModelFactory
@@ -158,7 +158,8 @@ def _load_test_checkpoint(
 def _train(
     module: nn.Module,
     model: Model,
-    dataset: SpeechSeparationDataset,
+    train_dataset: SpeechSeparationDatasetType,
+    valid_dataset: SpeechSeparationDatasetType,
     optimizations: list[Optimization],
     checkpointer: Checkpointer,
     checkpoint_name: Optional[str],
@@ -170,8 +171,8 @@ def _train(
     train_config: ReducedTrainingConfig,
 ) -> nn.Module:
     # Setup variables
-    train_dataloader = _get_dataloader(dataset.get_train(), device, seed, train_config)
-    valid_dataloader = _get_dataloader(dataset.get_valid(), device, seed, train_config)
+    train_dataloader = _get_dataloader(train_dataset, device, seed, train_config)
+    valid_dataloader = _get_dataloader(valid_dataset, device, seed, train_config)
     optimizer = model.get_optimizer(module)
     scheduler = model.get_scheduler(optimizer)
     early_stop = cast(EarlyStop | None, train_config["early_stop"]) or DummyEarlyStop()
@@ -267,7 +268,8 @@ def _train(
 def _fine_tune(
     module: nn.Module,
     model: Model,
-    dataset: SpeechSeparationDataset,
+    train_dataset: SpeechSeparationDatasetType,
+    valid_dataset: SpeechSeparationDatasetType,
     optimizations: list[Optimization],
     checkpointer: Checkpointer,
     checkpoint_saver: CheckpointSaver,
@@ -278,8 +280,8 @@ def _fine_tune(
     train_config: ReducedTrainingConfig,
 ) -> nn.Module:
     # Setup variables
-    train_dataloader = _get_dataloader(dataset.get_train(), device, seed, train_config)
-    valid_dataloader = _get_dataloader(dataset.get_valid(), device, seed, train_config)
+    train_dataloader = _get_dataloader(train_dataset, device, seed, train_config)
+    valid_dataloader = _get_dataloader(valid_dataset, device, seed, train_config)
     optimizer = model.get_optimizer(module)
     scheduler = model.get_scheduler(optimizer)
     # Apply optimizations
@@ -367,7 +369,7 @@ def _fine_tune(
 
 def _test(
     module: nn.Module,
-    dataset: SpeechSeparationDataset,
+    test_dataset: SpeechSeparationDatasetType,
     optimizations: list[Optimization],
     checkpointer: Checkpointer,
     checkpoint_name: Optional[str],
@@ -382,7 +384,7 @@ def _test(
         ", ".join(metric.__name__ for metric in train_config["test_metrics"]),
     )
     # Setup variables
-    test_dataloader = _get_dataloader(dataset.get_test(), device, seed, train_config)
+    test_dataloader = _get_dataloader(test_dataset, device, seed, train_config)
     # If we didn't train we need to load a checkpoint
     if train_config["test_only"]:
         assert checkpoint_name is not None
@@ -472,10 +474,15 @@ def train_test(
     observers.on_program_start(locals())
     # Train (if enabled)
     if not train_config["test_only"]:
+        # Load train and valid dataset as they are shared
+        train_dataset = dataset.get_train()
+        valid_dataset = dataset.get_valid()
+        # Run train
         module = _train(
             module,
             model,
-            dataset,
+            train_dataset,
+            valid_dataset,
             optimizations,
             checkpointer,
             checkpoint_name,
@@ -486,11 +493,13 @@ def train_test(
             seed,
             train_config,
         )
+        # While optimizations require finetune repeat
         while Optimizations.requireFinetune(optimizations):
             module = _fine_tune(
                 module,
                 model,
-                dataset,
+                train_dataset,
+                valid_dataset,
                 optimizations,
                 checkpointer,
                 checkpoint_saver,
@@ -500,10 +509,11 @@ def train_test(
                 seed,
                 train_config,
             )
-    # Test
+    # Load dataset and run test
+    test_dataset = dataset.get_test()
     module = _test(
         module,
-        dataset,
+        test_dataset,
         optimizations,
         checkpointer,
         checkpoint_name,
