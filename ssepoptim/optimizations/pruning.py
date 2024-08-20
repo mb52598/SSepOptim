@@ -129,7 +129,7 @@ class BasePruningOptimization(Optimization):
     ):
         names = self._name_dict[type(layer)]
         for name in names:
-            if not hasattr(layer, name):
+            if not hasattr(layer, name) or getattr(layer, name) is None:
                 logging.warn(
                     'Attempting to prune layer "%s" with parameter "%s" which is missing',
                     layer.__class__.__name__,

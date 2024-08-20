@@ -63,6 +63,6 @@ def calculate_module_gradients(
         mix = mix.to(device)
         target = target.to(device)
         separation = module(mix)
-        separation_loss = loss(separation, target)
+        separation_loss = torch.mean(loss(separation, target))
         separation_loss.backward()
     return timer.total
