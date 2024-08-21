@@ -160,6 +160,7 @@ def _train(
     model: Model,
     train_dataset: SpeechSeparationDatasetType,
     valid_dataset: SpeechSeparationDatasetType,
+    test_dataset: SpeechSeparationDatasetType,
     optimizations: list[Optimization],
     checkpointer: Checkpointer,
     checkpoint_name: Optional[str],
@@ -270,6 +271,7 @@ def _fine_tune(
     model: Model,
     train_dataset: SpeechSeparationDatasetType,
     valid_dataset: SpeechSeparationDatasetType,
+    test_dataset: SpeechSeparationDatasetType,
     optimizations: list[Optimization],
     checkpointer: Checkpointer,
     checkpoint_saver: CheckpointSaver,
@@ -472,6 +474,8 @@ def train_test(
     logger.info("Using loss: %s", train_config["loss"].__name__)
     # Activate observer
     observers.on_program_start(locals())
+    # Load test dataset as it is always used
+    test_dataset = dataset.get_test()
     # Train (if enabled)
     if not train_config["test_only"]:
         # Load train and valid dataset as they are shared
@@ -483,6 +487,7 @@ def train_test(
             model,
             train_dataset,
             valid_dataset,
+            test_dataset,
             optimizations,
             checkpointer,
             checkpoint_name,
@@ -500,6 +505,7 @@ def train_test(
                 model,
                 train_dataset,
                 valid_dataset,
+                test_dataset,
                 optimizations,
                 checkpointer,
                 checkpoint_saver,
@@ -509,8 +515,7 @@ def train_test(
                 seed,
                 train_config,
             )
-    # Load dataset and run test
-    test_dataset = dataset.get_test()
+    # Run test
     module = _test(
         module,
         test_dataset,

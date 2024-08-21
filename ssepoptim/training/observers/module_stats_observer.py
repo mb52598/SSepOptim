@@ -24,7 +24,7 @@ class ModuleStatsObserver(TrainingObserver):
         self, module: nn.Module, locals: dict[str, Any]
     ):
         # Steal the program configuration
-        dataset = cast(SpeechSeparationDatasetType, locals["train_dataset"])
+        dataset = cast(SpeechSeparationDatasetType, locals["test_dataset"])
         device = cast(torch.device, locals["device"])
         train_config = cast(TrainingConfig, locals["train_config"])
         # Calculate latency
