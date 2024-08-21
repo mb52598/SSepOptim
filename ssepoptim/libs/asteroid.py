@@ -771,35 +771,7 @@ class _Chop1d(nn.Module):
         return x[..., : -self.chop_size].contiguous()
 
 
-class Conv1DBlock(nn.Module):
-    """One dimensional convolutional block, as proposed in [1].
-
-    Args:
-        in_chan (int): Number of input channels.
-        hid_chan (int): Number of hidden channels in the depth-wise
-            convolution.
-        skip_out_chan (int): Number of channels in the skip convolution.
-            If 0 or None, `Conv1DBlock` won't have any skip connections.
-            Corresponds to the the block in v1 or the paper. The `forward`
-            return res instead of [res, skip] in this case.
-        kernel_size (int): Size of the depth-wise convolutional kernel.
-        padding (int): Padding of the depth-wise convolution.
-        dilation (int): Dilation of the depth-wise convolution.
-        norm_type (str, optional): Type of normalization to use. To choose from
-
-            -  ``'gLN'``: global Layernorm.
-            -  ``'cLN'``: channelwise Layernorm.
-            -  ``'cgLN'``: cumulative global Layernorm.
-            -  Any norm supported by :func:`~.norms.get`
-        causal (bool, optional) : Whether or not the convolutions are causal
-
-
-    References
-        [1] : "Conv-TasNet: Surpassing ideal time-frequency magnitude masking
-        for speech separation" TASLP 2019 Yi Luo, Nima Mesgarani
-        https://arxiv.org/abs/1809.07454
-    """
-
+class BaseConv1DBlock(nn.Module):
     def __init__(
         self,
         in_chan: int,
@@ -834,8 +806,32 @@ class Conv1DBlock(nn.Module):
             nn.PReLU(),
             conv_norm(hid_chan),
         )
-        self.res_conv = nn.Conv1d(hid_chan, in_chan, 1)
         self.skip_conv = nn.Conv1d(hid_chan, skip_out_chan, 1)
+
+
+class Conv1DBlock(BaseConv1DBlock):
+    def __init__(
+        self,
+        in_chan: int,
+        hid_chan: int,
+        skip_out_chan: int,
+        kernel_size: int,
+        padding: int,
+        dilation: int,
+        norm_type: Type[nn.Module] = GlobLN,
+        causal: bool = False,
+    ):
+        super().__init__(
+            in_chan,
+            hid_chan,
+            skip_out_chan,
+            kernel_size,
+            padding,
+            dilation,
+            norm_type,
+            causal,
+        )
+        self.res_conv = nn.Conv1d(hid_chan, in_chan, 1)
 
     def forward(
         self, x: torch.Tensor
@@ -845,6 +841,38 @@ class Conv1DBlock(nn.Module):
         res_out = self.res_conv(shared_out)
         skip_out = self.skip_conv(shared_out)
         return res_out, skip_out
+
+
+class FinalConv1DBlock(BaseConv1DBlock):
+    def __init__(
+        self,
+        in_chan: int,
+        hid_chan: int,
+        skip_out_chan: int,
+        kernel_size: int,
+        padding: int,
+        dilation: int,
+        norm_type: Type[nn.Module] = GlobLN,
+        causal: bool = False,
+    ):
+        super().__init__(
+            in_chan,
+            hid_chan,
+            skip_out_chan,
+            kernel_size,
+            padding,
+            dilation,
+            norm_type,
+            causal,
+        )
+
+    def forward(
+        self, x: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor] | torch.Tensor:
+        r"""Input shape $(batch, feats, seq)$."""
+        shared_out = self.shared_block(x)
+        skip_out = self.skip_conv(shared_out)
+        return torch.zeros(1), skip_out
 
 
 class TDConvNet(nn.Module):
@@ -913,24 +941,38 @@ class TDConvNet(nn.Module):
         self.bottleneck = nn.Sequential(layer_norm, bottleneck_conv)
         # Succession of Conv1DBlock with exponentially increasing dilation.
         self.TCN = nn.ModuleList()
-        for _ in range(n_repeats):
+        for i in range(n_repeats):
             for x in range(n_blocks):
                 if not causal:
                     padding = (conv_kernel_size - 1) * 2**x // 2
                 else:
                     padding = (conv_kernel_size - 1) * 2**x
-                self.TCN.append(
-                    Conv1DBlock(
-                        bn_chan,
-                        hid_chan,
-                        skip_chan,
-                        conv_kernel_size,
-                        padding=padding,
-                        dilation=2**x,
-                        norm_type=norm_type,
-                        causal=causal,
+                if i == n_repeats - 1 and x == n_blocks - 1:
+                    self.TCN.append(
+                        FinalConv1DBlock(
+                            bn_chan,
+                            hid_chan,
+                            skip_chan,
+                            conv_kernel_size,
+                            padding=padding,
+                            dilation=2**x,
+                            norm_type=norm_type,
+                            causal=causal,
+                        )
                     )
-                )
+                else:
+                    self.TCN.append(
+                        Conv1DBlock(
+                            bn_chan,
+                            hid_chan,
+                            skip_chan,
+                            conv_kernel_size,
+                            padding=padding,
+                            dilation=2**x,
+                            norm_type=norm_type,
+                            causal=causal,
+                        )
+                    )
         mask_conv_inp = skip_chan
         mask_conv = nn.Conv1d(mask_conv_inp, n_src * out_chan, 1)
         self.mask_net = nn.Sequential(nn.PReLU(), mask_conv)
