@@ -4,6 +4,8 @@ from typing import Any, Literal, Optional, overload
 
 import torch
 
+from ssepoptim.utils.io import io_open
+
 
 class Checkpointer:
     TIME_METADATA = "time"
@@ -90,7 +92,7 @@ class Checkpointer:
         self, checkpoint_filename: str, load_data: bool
     ) -> tuple[dict[str, Any], dict[str, Any]] | dict[str, Any]:
         path = self._get_checkpoint_path(checkpoint_filename)
-        with open(path, "rb") as file:
+        with io_open(path, "rb") as file:
             hidden_metadata = torch.load(
                 file, map_location=self._device, weights_only=False
             )
@@ -135,7 +137,7 @@ class Checkpointer:
         data: dict[str, Any],
     ):
         path = self._get_checkpoint_path(checkpoint_filename)
-        with open(path, "xb") as file:
+        with io_open(path, "xb") as file:
             torch.save(hidden_metadata, file, _use_new_zipfile_serialization=False)
             torch.save(data, file, _use_new_zipfile_serialization=False)
 

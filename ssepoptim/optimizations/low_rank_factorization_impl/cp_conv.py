@@ -47,8 +47,8 @@ def cp_conv_1d(layer: nn.Conv1d, rank: int, num_iters: int):
     return nn.Sequential(
         in_ch_to_length,
         length_to_rank,
-        rank_to_result,
         nn.ZeroPad1d(padding=(0, out_ch.shape[1] - 1)),
+        rank_to_result,
     )
 
 
@@ -99,8 +99,8 @@ def cp_conv_transpose_1d(layer: nn.ConvTranspose1d, rank: int, num_iters: int):
     return nn.Sequential(
         in_ch_to_length,
         length_to_rank,
-        rank_to_result,
         nn.ZeroPad1d(padding=(0, out_ch.shape[1] - 1)),
+        rank_to_result,
     )
 
 

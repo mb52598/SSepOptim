@@ -16,7 +16,7 @@ from ssepoptim.training.base import (
     search_and_load_checkpoint,
 )
 from ssepoptim.training.training_loop import train_test as train_test_loop
-from ssepoptim.utils.distributed import get_local_rank
+from ssepoptim.utils.distributed import get_local_rank, is_distributed
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ def _get_default_values(train_config: TrainingConfig):
         seed = train_config["seed"]
     else:
         # Check for distributed
-        if train_config["distributed_training"]:
+        if is_distributed():
             raise RuntimeError("Seed needs to be set for distributed training")
         # Generate seed
         seed = random.randrange(sys.maxsize)
@@ -63,6 +63,8 @@ def _attemp_search_and_load_checkpoint(
 
 
 def train_test(
+    task_index: int,
+    total_tasks: int,
     model_name: str,
     dataset_name: str,
     optimization_names: list[str],
@@ -89,8 +91,13 @@ def train_test(
         checkpoint_name = None
         identifier, seed = _get_default_values(train_config)
     # Start training
-    if train_config["distributed_training"]:
-        dist.init_process_group(backend="nccl")
+    if is_distributed():
+        # Only initialize process group on first task
+        if task_index == 0:
+            dist.init_process_group(backend="nccl")
+        # Log we are using distributed
+        logger.info("Using distributed training")
+        # Setup default device
         device_id = get_local_rank()
         torch.cuda.set_device(device_id)
         device = torch.device("cuda", device_id)
@@ -108,7 +115,9 @@ def train_test(
             optimization_configs,
             train_config,
         )
-        dist.destroy_process_group()
+        # Only delete the process group on the last task
+        if task_index == total_tasks - 1:
+            dist.destroy_process_group()
     else:
         if train_config["device"] is not None:
             device = torch.device(train_config["device"])

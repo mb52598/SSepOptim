@@ -39,7 +39,7 @@ from ssepoptim.training.base import (
 )
 from ssepoptim.training.early_stop import DummyEarlyStop, EarlyStop
 from ssepoptim.training.training_observer import TrainingObservers
-from ssepoptim.utils.distributed import get_global_rank
+from ssepoptim.utils.distributed import get_global_rank, is_distributed
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ def _get_dataloader(
     seed: int,
     train_config: ReducedTrainingConfig,
 ) -> DatasetDataLoader:
-    if train_config["distributed_training"]:
+    if is_distributed():
         return DataLoader(
             dataset,
             batch_size=train_config["batch_size"],
@@ -197,7 +197,7 @@ def _train(
     observers.on_training_start(locals())
     # If we are distributed wrap the module in DDP
     rank = None
-    if train_config["distributed_training"]:
+    if is_distributed():
         rank = get_global_rank()
         module = DDP(
             module,
@@ -237,7 +237,7 @@ def _train(
         )
         #
         if epoch % train_config["checkpoint_epoch_log"] == 0:
-            if not train_config["distributed_training"] or rank == 0:
+            if not is_distributed() or rank == 0:
                 checkpoint_saver.save_checkpoint(
                     checkpointer,
                     epoch,
@@ -294,7 +294,7 @@ def _fine_tune(
     observers.on_fine_tuning_start(locals())
     # If we are distributed wrap the module in DDP
     rank = None
-    if train_config["distributed_training"]:
+    if is_distributed():
         rank = get_global_rank()
         module = DDP(
             module,
@@ -347,7 +347,7 @@ def _fine_tune(
         #
         observers.on_fine_tuning_epoch_end(locals())
     # Save module checkpoint
-    if not train_config["distributed_training"] or rank == 0:
+    if not is_distributed() or rank == 0:
         if train_config["save_finetune_checkpoint"]:
             checkpoint_saver.save_checkpoint(
                 checkpointer,

@@ -19,6 +19,8 @@ from typing import (
     get_type_hints,
 )
 
+from ssepoptim.utils.io import io_open
+
 
 class BaseConfig(TypedDict):
     pass
@@ -44,7 +46,7 @@ class ConfigLoader:
         self._parser = ConfigParser(
             interpolation=ExtendedInterpolation(),
         )
-        with open(path, "r") as file:
+        with io_open(path, "r") as file:
             self._parser.read_file(file)
 
     @staticmethod

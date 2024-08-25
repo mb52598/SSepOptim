@@ -17,6 +17,7 @@ from ssepoptim.utils.type_checker import check_config_entries
 class Aishell1MixDatasetConfig(SpeechSeparationDatasetConfig):
     path: str
     num_frames_per_datapoint: Optional[int]
+    use_cache: Optional[bool]
 
 
 class Aishell1MixDataset(SpeechSeparationDataset):
@@ -51,6 +52,7 @@ class Aishell1MixDataset(SpeechSeparationDataset):
                 "mixture_path",
                 ["source_1_path", "source_2_path"],
                 self._config["num_frames_per_datapoint"],
+                bool(self._config["use_cache"]),
             )
 
     def get_train(self) -> SpeechSeparationDatasetType:

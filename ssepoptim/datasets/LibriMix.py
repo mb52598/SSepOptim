@@ -21,6 +21,7 @@ from ssepoptim.utils.type_checker import check_config_entries
 class LibriMixDatasetConfig(SpeechSeparationDatasetConfig):
     path: str
     num_frames_per_datapoint: Optional[int]
+    use_cache: Optional[bool]
 
 
 class LibriMixDataset(SpeechSeparationDataset):
@@ -55,6 +56,7 @@ class LibriMixDataset(SpeechSeparationDataset):
                     "mixture_path",
                     ["source_1_path", "source_2_path"],
                     self._config["num_frames_per_datapoint"],
+                    bool(self._config["use_cache"]),
                 )
 
         return cast(

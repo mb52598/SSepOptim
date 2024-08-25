@@ -17,7 +17,7 @@ from ssepoptim.optimizations.pruning_impl.weight_change_pruning import (
     weight_change_structured,
     weight_change_unstructured,
 )
-from ssepoptim.utils.module_transforming import for_module
+from ssepoptim.utils.module_transforming import for_module, replace_module
 from ssepoptim.utils.type_checker import check_config_entries
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,7 @@ class PruningOptimizationConfig(OptimizationConfig):
     num_iters: int
     model_validation_deterioration_delta: Optional[float]
     dataset_percentage: Optional[float]
+    sparse_storage_format: Optional[Literal["COO", "CSR", "CSC", "BSR", "BSC"]]
 
 
 def _get_pruning_masks(layer: nn.Module, name: str):
@@ -56,6 +57,24 @@ def _apply_pruning_masks_and_make_permanent(
         if isinstance(hook, prune.BasePruningMethod) and hook._tensor_name == name:
             setattr(layer, hook._tensor_name + "_mask", masks.pop(0))
     prune.remove(layer, name)
+
+
+class ToSparse(nn.Module):
+    def __init__(self, layout: torch.layout):
+        super().__init__()
+        self._layout = layout
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        return input.to_sparse(layout=self._layout)
+
+
+class FromSparse(nn.Module):
+    def __init__(self, layout: torch.layout):
+        super().__init__()
+        self._layout = layout
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        return input.to_dense()
 
 
 class BasePruningOptimization(Optimization):
@@ -180,6 +199,31 @@ class BasePruningOptimization(Optimization):
         # Make pruning permanent
         self._run_module_function(module, self._make_pruning_permanent)
 
+    @staticmethod
+    def _to_sparse(module: nn.Module, layout: torch.layout):
+        for n, p in module.named_parameters():
+            setattr(module, n, nn.Parameter(p.to_sparse(layout=layout)))
+        return nn.Sequential(ToSparse(layout), module, FromSparse(layout))
+
+    def _test_start(self, module: nn.Module):
+        if self._config["sparse_storage_format"] is None:
+            return
+        # Get the storage format
+        match self._config["sparse_storage_format"]:
+            case "COO":
+                layout = torch.sparse_coo
+            case "CSR":
+                layout = torch.sparse_csr
+            case "CSC":
+                layout = torch.sparse_csc
+            case "BSR":
+                layout = torch.sparse_bsr
+            case "BSC":
+                layout = torch.sparse_bsc
+        # Apply the new storage format for the pruned modules
+        for layer_type in self._config["layers"]:
+            replace_module(module, layer_type, lambda x: self._to_sparse(x, layout))
+
     def apply(
         self, module: nn.Module, stage: OptimizationStage, locals: dict[str, Any]
     ) -> nn.Module:
@@ -189,6 +233,8 @@ class BasePruningOptimization(Optimization):
                 self._iter += 1
             case "FINETUNE_END":
                 self._finetune_end(module, locals)
+            case "TEST_START":
+                self._test_start(module)
             case _:
                 pass
         return module

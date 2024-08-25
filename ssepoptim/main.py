@@ -1,5 +1,6 @@
 import logging
 import os
+from contextlib import suppress
 from datetime import datetime
 from typing import Literal, Optional
 
@@ -24,9 +25,10 @@ class MainConfig(BaseConfig):
     log_level: Literal[
         "CRITICAL", "FATAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"
     ]
+    delete_config_on_success: Optional[bool]
 
 
-def main(config_path: str):
+def main(config_path: str, task_index: int, total_tasks: int):
     # Configurations
     loader = ConfigLoader(config_path)
     config = loader.get_config(MainConfig)
@@ -72,6 +74,8 @@ def main(config_path: str):
     )
     # Train and test
     train_test(
+        task_index,
+        total_tasks,
         config["model"],
         config["dataset"],
         config["optimizations"],
@@ -80,3 +84,7 @@ def main(config_path: str):
         optimization_configs,
         train_config,
     )
+    # Delete config if configured
+    if config["delete_config_on_success"]:
+        with suppress(FileNotFoundError):
+            os.remove(config_path)

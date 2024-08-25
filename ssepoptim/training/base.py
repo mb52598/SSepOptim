@@ -60,7 +60,6 @@ class ReducedTrainingConfig(BaseConfig):
     checkpoints_path: str
     observers: list[Constructable[TrainingObserver]]
     early_stop: Optional[Constructable[EarlyStop]]
-    distributed_training: bool
     distributed_find_unused_params: bool
 
 

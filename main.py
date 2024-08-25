@@ -30,8 +30,8 @@ def main():
         ]
     else:
         config_paths = [args.config_path]
-    for config_path in config_paths:
-        ssepoptim_main(config_path)
+    for i, config_path in enumerate(config_paths):
+        ssepoptim_main(config_path, i, len(config_paths))
 
 
 if __name__ == "__main__":
