@@ -72,7 +72,10 @@ class PermutationInvariantMetric(nn.Module):
 
 
 def fbss_pit_wrap(
-    metric: Metric, prediction: torch.Tensor, target: torch.Tensor
+    metric: Metric,
+    prediction: torch.Tensor,
+    target: torch.Tensor,
+    maximize: bool = True,
 ) -> torch.Tensor:
     channels = prediction.shape[1]
     values: list[torch.Tensor] = []
@@ -83,6 +86,6 @@ def fbss_pit_wrap(
         assert cost_mat.dim() in [2, 3]
         if cost_mat.dim() > 2:
             cost_mat = torch.mean(cost_mat, dim=-1)
-        rows, cols = linear_sum_assignment(cost_mat)
+        rows, cols = linear_sum_assignment(-cost_mat if maximize else cost_mat)
         values.append(torch.mean(cost_mat[rows, cols]))
     return torch.stack(values)
