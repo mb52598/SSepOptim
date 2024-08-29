@@ -2,6 +2,8 @@ from typing import Callable
 
 import requests
 
+from ssepoptim.utils.io import io_open
+
 
 def gdrive_download(
     file_id: str, path: str, report_hook: Callable[[int, int, int], None]
@@ -33,7 +35,7 @@ def gdrive_download(
         if content_length_header_key in response.headers
         else -1
     )
-    with open(path, "xb") as file:
+    with io_open(path, "xb") as file:
         for chunk in response.iter_content(block_size):
             if chunk:
                 file.write(chunk)

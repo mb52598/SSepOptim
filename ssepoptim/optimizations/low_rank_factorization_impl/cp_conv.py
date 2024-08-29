@@ -44,7 +44,12 @@ def cp_conv_1d(layer: nn.Conv1d, rank: int, num_iters: int):
     length_to_rank.weight.data = length.T.unsqueeze(0)
     rank_to_result.weight.data = out_ch.unsqueeze(1)
 
-    return nn.Sequential(in_ch_to_length, length_to_rank, rank_to_result)
+    return nn.Sequential(
+        in_ch_to_length,
+        length_to_rank,
+        nn.ZeroPad1d(padding=(0, out_ch.shape[1] - 1)),
+        rank_to_result,
+    )
 
 
 def cp_conv_transpose_1d(layer: nn.ConvTranspose1d, rank: int, num_iters: int):
@@ -91,7 +96,12 @@ def cp_conv_transpose_1d(layer: nn.ConvTranspose1d, rank: int, num_iters: int):
     length_to_rank.weight.data = length.T.unsqueeze(1)
     rank_to_result.weight.data = out_ch.unsqueeze(0)
 
-    return nn.Sequential(in_ch_to_length, length_to_rank, rank_to_result)
+    return nn.Sequential(
+        in_ch_to_length,
+        length_to_rank,
+        nn.ZeroPad1d(padding=(0, out_ch.shape[1] - 1)),
+        rank_to_result,
+    )
 
 
 def cp_conv_2d(layer: nn.Conv2d, rank: int, num_iters: int):

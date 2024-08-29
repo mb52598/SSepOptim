@@ -6,6 +6,7 @@ from typing import Callable, Optional, Union
 import torch.nn as nn
 
 from ssepoptim.base.configuration import BaseConfig, ConfigLoader
+from ssepoptim.utils.io import io_open
 
 
 def get_valid_test_config():
@@ -72,7 +73,7 @@ class TestConfiguration(unittest.TestCase):
         b = 3.123
         c = 123
         """
-        with open(self._test_config_filename, "x") as file:
+        with io_open(self._test_config_filename, "x") as file:
             file.write(test_config)
         self._config_loader = ConfigLoader(self._test_config_filename)
 

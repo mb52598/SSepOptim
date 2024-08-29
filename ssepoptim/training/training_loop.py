@@ -13,9 +13,9 @@ import ssepoptim.loss as loss
 from ssepoptim.base.checkpointing import Checkpointer
 from ssepoptim.dataset import (
     LenDataset,
-    SpeechSeparationDataset,
     SpeechSeparationDatasetConfig,
     SpeechSeparationDatasetFactory,
+    SpeechSeparationDatasetType,
 )
 from ssepoptim.metrics.pit import PermutationInvariantMetric
 from ssepoptim.model import Model, ModelConfig, ModelFactory
@@ -39,7 +39,7 @@ from ssepoptim.training.base import (
 )
 from ssepoptim.training.early_stop import DummyEarlyStop, EarlyStop
 from ssepoptim.training.training_observer import TrainingObservers
-from ssepoptim.utils.distributed import get_global_rank
+from ssepoptim.utils.distributed import get_global_rank, is_distributed
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ def _get_dataloader(
     seed: int,
     train_config: ReducedTrainingConfig,
 ) -> DatasetDataLoader:
-    if train_config["distributed_training"]:
+    if is_distributed():
         return DataLoader(
             dataset,
             batch_size=train_config["batch_size"],
@@ -158,7 +158,9 @@ def _load_test_checkpoint(
 def _train(
     module: nn.Module,
     model: Model,
-    dataset: SpeechSeparationDataset,
+    train_dataset: SpeechSeparationDatasetType,
+    valid_dataset: SpeechSeparationDatasetType,
+    test_dataset: SpeechSeparationDatasetType,
     optimizations: list[Optimization],
     checkpointer: Checkpointer,
     checkpoint_name: Optional[str],
@@ -170,8 +172,8 @@ def _train(
     train_config: ReducedTrainingConfig,
 ) -> nn.Module:
     # Setup variables
-    train_dataloader = _get_dataloader(dataset.get_train(), device, seed, train_config)
-    valid_dataloader = _get_dataloader(dataset.get_valid(), device, seed, train_config)
+    train_dataloader = _get_dataloader(train_dataset, device, seed, train_config)
+    valid_dataloader = _get_dataloader(valid_dataset, device, seed, train_config)
     optimizer = model.get_optimizer(module)
     scheduler = model.get_scheduler(optimizer)
     early_stop = cast(EarlyStop | None, train_config["early_stop"]) or DummyEarlyStop()
@@ -195,7 +197,7 @@ def _train(
     observers.on_training_start(locals())
     # If we are distributed wrap the module in DDP
     rank = None
-    if train_config["distributed_training"]:
+    if is_distributed():
         rank = get_global_rank()
         module = DDP(
             module,
@@ -235,7 +237,7 @@ def _train(
         )
         #
         if epoch % train_config["checkpoint_epoch_log"] == 0:
-            if not train_config["distributed_training"] or rank == 0:
+            if not is_distributed() or rank == 0:
                 checkpoint_saver.save_checkpoint(
                     checkpointer,
                     epoch,
@@ -267,7 +269,9 @@ def _train(
 def _fine_tune(
     module: nn.Module,
     model: Model,
-    dataset: SpeechSeparationDataset,
+    train_dataset: SpeechSeparationDatasetType,
+    valid_dataset: SpeechSeparationDatasetType,
+    test_dataset: SpeechSeparationDatasetType,
     optimizations: list[Optimization],
     checkpointer: Checkpointer,
     checkpoint_saver: CheckpointSaver,
@@ -278,8 +282,8 @@ def _fine_tune(
     train_config: ReducedTrainingConfig,
 ) -> nn.Module:
     # Setup variables
-    train_dataloader = _get_dataloader(dataset.get_train(), device, seed, train_config)
-    valid_dataloader = _get_dataloader(dataset.get_valid(), device, seed, train_config)
+    train_dataloader = _get_dataloader(train_dataset, device, seed, train_config)
+    valid_dataloader = _get_dataloader(valid_dataset, device, seed, train_config)
     optimizer = model.get_optimizer(module)
     scheduler = model.get_scheduler(optimizer)
     # Apply optimizations
@@ -290,7 +294,7 @@ def _fine_tune(
     observers.on_fine_tuning_start(locals())
     # If we are distributed wrap the module in DDP
     rank = None
-    if train_config["distributed_training"]:
+    if is_distributed():
         rank = get_global_rank()
         module = DDP(
             module,
@@ -343,7 +347,7 @@ def _fine_tune(
         #
         observers.on_fine_tuning_epoch_end(locals())
     # Save module checkpoint
-    if not train_config["distributed_training"] or rank == 0:
+    if not is_distributed() or rank == 0:
         if train_config["save_finetune_checkpoint"]:
             checkpoint_saver.save_checkpoint(
                 checkpointer,
@@ -367,7 +371,7 @@ def _fine_tune(
 
 def _test(
     module: nn.Module,
-    dataset: SpeechSeparationDataset,
+    test_dataset: SpeechSeparationDatasetType,
     optimizations: list[Optimization],
     checkpointer: Checkpointer,
     checkpoint_name: Optional[str],
@@ -382,7 +386,7 @@ def _test(
         ", ".join(metric.__name__ for metric in train_config["test_metrics"]),
     )
     # Setup variables
-    test_dataloader = _get_dataloader(dataset.get_test(), device, seed, train_config)
+    test_dataloader = _get_dataloader(test_dataset, device, seed, train_config)
     # If we didn't train we need to load a checkpoint
     if train_config["test_only"]:
         assert checkpoint_name is not None
@@ -470,12 +474,20 @@ def train_test(
     logger.info("Using loss: %s", train_config["loss"].__name__)
     # Activate observer
     observers.on_program_start(locals())
+    # Load test dataset as it is always used
+    test_dataset = dataset.get_test()
     # Train (if enabled)
     if not train_config["test_only"]:
+        # Load train and valid dataset as they are shared
+        train_dataset = dataset.get_train()
+        valid_dataset = dataset.get_valid()
+        # Run train
         module = _train(
             module,
             model,
-            dataset,
+            train_dataset,
+            valid_dataset,
+            test_dataset,
             optimizations,
             checkpointer,
             checkpoint_name,
@@ -486,11 +498,14 @@ def train_test(
             seed,
             train_config,
         )
+        # While optimizations require finetune repeat
         while Optimizations.requireFinetune(optimizations):
             module = _fine_tune(
                 module,
                 model,
-                dataset,
+                train_dataset,
+                valid_dataset,
+                test_dataset,
                 optimizations,
                 checkpointer,
                 checkpoint_saver,
@@ -500,10 +515,10 @@ def train_test(
                 seed,
                 train_config,
             )
-    # Test
+    # Run test
     module = _test(
         module,
-        dataset,
+        test_dataset,
         optimizations,
         checkpointer,
         checkpoint_name,

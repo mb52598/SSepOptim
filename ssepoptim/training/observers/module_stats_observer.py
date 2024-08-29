@@ -4,7 +4,7 @@ from typing import Any, cast
 import torch
 import torch.nn as nn
 
-from ssepoptim.dataset import SpeechSeparationDataset
+from ssepoptim.dataset import SpeechSeparationDatasetType
 from ssepoptim.training.base import TrainingConfig, get_module_latency_and_throughput
 from ssepoptim.training.training_observer import TrainingObserver
 from ssepoptim.utils.module_stats import (
@@ -24,7 +24,7 @@ class ModuleStatsObserver(TrainingObserver):
         self, module: nn.Module, locals: dict[str, Any]
     ):
         # Steal the program configuration
-        dataset = cast(SpeechSeparationDataset, locals["dataset"]).get_train()
+        dataset = cast(SpeechSeparationDatasetType, locals["test_dataset"])
         device = cast(torch.device, locals["device"])
         train_config = cast(TrainingConfig, locals["train_config"])
         # Calculate latency

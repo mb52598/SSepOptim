@@ -4,14 +4,14 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
+from ssepoptim.dataset import SpeechSeparationDatasetType
 from ssepoptim.training.base import TrainingConfig, collate_fn, sample_dataset
-from ssepoptim.utils.conversion import take_percentage
 from ssepoptim.utils.context_timer import CtxTimer
-from ssepoptim.dataset import SpeechSeparationDataset
+from ssepoptim.utils.conversion import take_percentage
 
 
 def get_local_data(locals: dict[str, Any]):
-    dataset = cast(SpeechSeparationDataset, locals["dataset"]).get_train()
+    dataset = cast(SpeechSeparationDatasetType, locals["train_dataset"])
     device = cast(torch.device, locals["device"])
     train_config = cast(TrainingConfig, locals["train_config"])
     return dataset, device, train_config
@@ -63,6 +63,6 @@ def calculate_module_gradients(
         mix = mix.to(device)
         target = target.to(device)
         separation = module(mix)
-        separation_loss = loss(separation, target)
+        separation_loss = torch.mean(loss(separation, target))
         separation_loss.backward()
     return timer.total

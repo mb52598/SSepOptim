@@ -3,6 +3,7 @@ import torch
 import torchaudio
 
 from ssepoptim.dataset import LenDataset
+from ssepoptim.datasets.utils.cache_data import load_from_cache
 from ssepoptim.datasets.utils.split_data import split_dataset_frames_idx_size
 
 
@@ -42,17 +43,27 @@ class SplitCsvAudioDataset(LenDataset[tuple[torch.Tensor, torch.Tensor]]):
         mixture_field: str,
         source_fields: list[str],
         num_frames_per_datapoint: int,
+        use_cache: bool = False,
     ):
         self._df = pd.read_csv(csv_path)
         self._mixture_field_idx = self._df.columns.get_loc(mixture_field)
         self._source_field_idxs = [
             self._df.columns.get_loc(source_field) for source_field in source_fields
         ]
-        self._frames_start_length, self._frames_file_idx, self._total_datapoints = (
-            split_dataset_frames_idx_size(
+
+        def load_function():
+            return split_dataset_frames_idx_size(
                 self._df.iloc[:, self._mixture_field_idx].to_list(),
                 num_frames_per_datapoint,
             )
+
+        if use_cache:
+            pickle_path = csv_path + ".pickle"
+            result = load_from_cache(pickle_path, load_function)
+        else:
+            result = load_function()
+        self._frames_start_length, self._frames_file_idx, self._total_datapoints = (
+            result
         )
 
     def __len__(self) -> int:

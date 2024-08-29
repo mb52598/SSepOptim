@@ -21,6 +21,7 @@ class LibriCSSDatasetConfig(SpeechSeparationDatasetConfig):
     path: str
     sample_rate: int
     num_frames_per_datapoint: Optional[int]
+    use_cache: Optional[bool]
 
 
 class LibriCSSDataset(SpeechSeparationDataset):
@@ -60,6 +61,7 @@ class LibriCSSDataset(SpeechSeparationDataset):
                 dataset_files,
                 self._config["num_frames_per_datapoint"],
                 self._config["sample_rate"],
+                bool(self._config["use_cache"]),
             )
 
     def get_train(self) -> SpeechSeparationDatasetType:

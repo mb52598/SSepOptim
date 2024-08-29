@@ -2,6 +2,7 @@ import torch
 import torchaudio
 
 from ssepoptim.dataset import LenDataset
+from ssepoptim.datasets.utils.cache_data import load_from_cache
 from ssepoptim.datasets.utils.split_data import split_dataset_frames_idx_size
 
 
@@ -48,13 +49,24 @@ class SplitAudioFilesDataset(LenDataset[tuple[torch.Tensor, torch.Tensor]]):
         files: list[tuple[str, str]],
         num_frames_per_datapoint: int,
         expected_sampling_rate: int,
+        use_cache: bool = False,
     ):
         self._files = files
         # _check_dataset(files, expected_sampling_rate)
-        self._frames_start_length, self._frames_file_idx, self._total_datapoints = (
-            split_dataset_frames_idx_size(
+
+        def load_function():
+            return split_dataset_frames_idx_size(
                 [file[0] for file in files], num_frames_per_datapoint
             )
+
+        if use_cache:
+            pickle_path = files[0][0] + ".pickle"
+            result = load_from_cache(pickle_path, load_function)
+        else:
+            result = load_function()
+
+        self._frames_start_length, self._frames_file_idx, self._total_datapoints = (
+            result
         )
 
     def __len__(self) -> int:
