@@ -1,6 +1,6 @@
 import logging
 import random
-from typing import Optional, cast
+from typing import Literal, Optional, cast
 
 import torch
 import torch.nn as nn
@@ -39,7 +39,7 @@ from ssepoptim.training.base import (
 )
 from ssepoptim.training.early_stop import DummyEarlyStop, EarlyStop
 from ssepoptim.training.training_observer import TrainingObservers
-from ssepoptim.utils.distributed import get_global_rank, is_distributed
+from ssepoptim.utils.distributed import is_distributed
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +103,7 @@ class CheckpointSaver:
     def save_checkpoint(
         self,
         checkpointer: Checkpointer,
+        stage: Literal["train", "fine-tune"],
         epoch: int,
         train_avg_loss: float,
         valid_avg_loss: float,
@@ -116,6 +117,7 @@ class CheckpointSaver:
         save_checkpoint(
             checkpointer,
             self._identifier,
+            stage,
             self._seed,
             self._model_name,
             epoch,
@@ -196,9 +198,7 @@ def _train(
     # Activate observer
     observers.on_training_start(locals())
     # If we are distributed wrap the module in DDP
-    rank = None
     if is_distributed():
-        rank = get_global_rank()
         module = DDP(
             module,
             device_ids=[device.index],
@@ -237,16 +237,16 @@ def _train(
         )
         #
         if epoch % train_config["checkpoint_epoch_log"] == 0:
-            if not is_distributed() or rank == 0:
-                checkpoint_saver.save_checkpoint(
-                    checkpointer,
-                    epoch,
-                    train_avg_loss,
-                    valid_avg_loss,
-                    module,
-                    optimizer,
-                    scheduler,
-                )
+            checkpoint_saver.save_checkpoint(
+                checkpointer,
+                "train",
+                epoch,
+                train_avg_loss,
+                valid_avg_loss,
+                module,
+                optimizer,
+                scheduler,
+            )
         #
         _scheduler_step(scheduler, train_avg_loss)
         #
@@ -293,9 +293,7 @@ def _fine_tune(
     # Activate observer
     observers.on_fine_tuning_start(locals())
     # If we are distributed wrap the module in DDP
-    rank = None
     if is_distributed():
-        rank = get_global_rank()
         module = DDP(
             module,
             device_ids=[device.index],
@@ -347,17 +345,17 @@ def _fine_tune(
         #
         observers.on_fine_tuning_epoch_end(locals())
     # Save module checkpoint
-    if not is_distributed() or rank == 0:
-        if train_config["save_finetune_checkpoint"]:
-            checkpoint_saver.save_checkpoint(
-                checkpointer,
-                train_config["epochs"] + train_config["finetune_epochs"],
-                0,
-                0,
-                module,
-                optimizer,
-                scheduler,
-            )
+    if train_config["save_finetune_checkpoint"]:
+        checkpoint_saver.save_checkpoint(
+            checkpointer,
+            "fine-tune",
+            train_config["finetune_epochs"],
+            0,
+            0,
+            module,
+            optimizer,
+            scheduler,
+        )
     # Unwrap module if distributed
     if type(module) is DDP:
         module = cast(nn.Module, module.module)
