@@ -369,6 +369,8 @@ def _fine_tune(
 
 def _test(
     module: nn.Module,
+    train_dataset: SpeechSeparationDatasetType,
+    valid_dataset: SpeechSeparationDatasetType,
     test_dataset: SpeechSeparationDatasetType,
     optimizations: list[Optimization],
     checkpointer: Checkpointer,
@@ -516,6 +518,8 @@ def train_test(
     # Run test
     module = _test(
         module,
+        train_dataset,
+        valid_dataset,
         test_dataset,
         optimizations,
         checkpointer,

@@ -184,7 +184,7 @@ class PTDQuantizationOptimization(Optimization):
     def apply(
         self, module: nn.Module, stage: OptimizationStage, locals: dict[str, Any]
     ) -> nn.Module:
-        if stage != "FINETUNE_START":
+        if stage != "TEST_START":
             return module
         if self._quantized:
             return module
