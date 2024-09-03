@@ -109,7 +109,7 @@ class DPTNet(Model):
         return DPTNetModule(self._config)
 
     def get_optimizer(self, model: nn.Module) -> optim.Optimizer:
-        return optim.Adam(model.parameters())
+        return optim.Adam(model.parameters(), lr=0.001, weight_decay=0)
 
     def get_scheduler(
         self, optimizer: optim.Optimizer

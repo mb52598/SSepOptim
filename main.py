@@ -30,7 +30,7 @@ def main():
         ]
     else:
         config_paths = [args.config_path]
-    for i, config_path in enumerate(config_paths):
+    for i, config_path in enumerate(sorted(config_paths)):
         ssepoptim_main(config_path, i, len(config_paths))
 
 

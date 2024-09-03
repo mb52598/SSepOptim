@@ -16,7 +16,7 @@ from ssepoptim.training.base import (
     search_and_load_checkpoint,
 )
 from ssepoptim.training.training_loop import train_test as train_test_loop
-from ssepoptim.utils.distributed import get_local_rank, is_distributed
+from ssepoptim.utils.distributed import get_global_rank, get_local_rank, is_distributed
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +96,7 @@ def train_test(
         if task_index == 0:
             dist.init_process_group(backend="nccl")
         # Log we are using distributed
-        logger.info("Using distributed training")
+        logger.info("Using distributed training, rank: %d", get_global_rank())
         # Setup default device
         device_id = get_local_rank()
         torch.cuda.set_device(device_id)
@@ -115,6 +115,8 @@ def train_test(
             optimization_configs,
             train_config,
         )
+        # Synchronize devices
+        dist.barrier()
         # Only delete the process group on the last task
         if task_index == total_tasks - 1:
             dist.destroy_process_group()

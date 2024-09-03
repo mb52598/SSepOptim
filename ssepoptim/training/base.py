@@ -14,8 +14,8 @@ from ssepoptim.dataset import SpeechSeparationDatasetConfig, SpeechSeparationDat
 from ssepoptim.metrics.base import Metric
 from ssepoptim.model import ModelConfig
 from ssepoptim.optimization import OptimizationConfig
-from ssepoptim.training.training_observer import TrainingObserver
 from ssepoptim.training.early_stop import EarlyStop
+from ssepoptim.training.training_observer import TrainingObserver
 from ssepoptim.utils.context_timer import CtxTimer
 from ssepoptim.utils.conversion import dict_any_to_str
 from ssepoptim.utils.torch_utils import synchronize_device
@@ -27,6 +27,7 @@ DatasetDataLoader = DataLoader[DatasetData]
 # Useful for preventing typing errors
 class CheckpointerKeys:
     ID = "id"
+    STAGE = "stage"
     SEED = "seed"
     EPOCH = "epoch"
     TRAIN_AVERAGE_LOSS = "train_avg_loss"
@@ -207,6 +208,7 @@ def search_and_load_checkpoint(
 def save_checkpoint(
     checkpointer: Checkpointer,
     identifier: str,
+    stage: Literal["train", "fine-tune"],
     seed: int,
     model_name: str,
     epoch: int,
@@ -225,6 +227,7 @@ def save_checkpoint(
         visible_metadata=dict_any_to_str(
             {
                 CheckpointerKeys.ID: identifier,
+                CheckpointerKeys.STAGE: stage,
                 CheckpointerKeys.EPOCH: epoch,
             }
         ),
