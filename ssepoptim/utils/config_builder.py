@@ -45,13 +45,14 @@ def build_folders(
     scheme: dict[str, list[str] | list[dict[str, str]]],
     folders_func: Callable[[str, dict[str, str]], str],
     filename_func: Callable[[str, dict[str, str]], str],
+    template_suffix: str = "template",
 ):
     schema = cast(dict[str, list[Any]], scheme)
     for root, _, filenames in os.walk("."):
         for values in _parse_scheme_recursion(schema, 0, {}):
             values = _merge_dict(values)
             for filename in filenames:
-                if not filename.endswith("template"):
+                if not filename.endswith(template_suffix):
                     continue
                 out_root = folders_func(root, values)
                 os.makedirs(out_root, exist_ok=True)
